@@ -1,0 +1,72 @@
+name: 台股發發發 每日自動執行
+
+on:
+  # 台灣時間 18:00 = UTC 10:00，週一到週五
+  schedule:
+    - cron: '0 10 * * 1-5'
+
+  # 手動觸發（測試用）
+  workflow_dispatch:
+
+jobs:
+  run-scanner:
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: 取出程式碼
+        uses: actions/checkout@v4
+
+      - name: 安裝中文字型
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q fonts-noto-cjk
+          fc-cache -fv
+
+      - name: 設定 Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安裝 Python 套件
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 執行選股系統
+        env:
+          FINMIND_TOKEN:    ${{ secrets.FINMIND_TOKEN }}
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GMAIL_USER:       ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASS:   ${{ secrets.GMAIL_APP_PASS }}
+          EMAIL_TO:         ${{ secrets.EMAIL_TO }}
+          REPORT_URL:       ${{ secrets.REPORT_URL }}
+          TOP500_PATH:      top500.csv
+        run: python taiwan_888.py
+
+      - name: 推送報告（只保留 index.html，不塞舊檔）
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          mkdir -p output
+
+          # 把帶日期的 HTML 改名為 index.html（固定網址）
+          NEW_HTML=$(ls output/taiwan_888_*.html 2>/dev/null | head -1)
+          if [ -n "$NEW_HTML" ]; then
+            mv "$NEW_HTML" output/index.html
+          fi
+
+          # 從 git 移除帶日期的舊檔（保持倉庫乾淨）
+          git rm -f output/taiwan_888_*.html 2>/dev/null || true
+          git rm -f output/taiwan_3systems_*.csv 2>/dev/null || true
+
+          # 只加入 index.html
+          git add output/index.html
+
+          git diff --cached --quiet || git commit -m "Update: 台股發發發報告 $(date +'%Y-%m-%d')"
+          git push
