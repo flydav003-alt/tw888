@@ -44,7 +44,7 @@ jobs:
           GMAIL_USER:       ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASS:   ${{ secrets.GMAIL_APP_PASS }}
           EMAIL_TO:         ${{ secrets.EMAIL_TO }}
-          REPORT_URL:       ${{ secrets.REPORT_URL }}
+          REPORT_URL: ${{ secrets.REPORT_URL }}
           TOP500_PATH:      top500.csv
         run: python taiwan_888.py
 
