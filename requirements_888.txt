@@ -1,0 +1,8 @@
+FinMind>=1.6.7
+pandas>=2.1.0
+numpy>=1.26.0
+requests>=2.31.0
+feedparser>=6.0.10
+mplfinance>=0.12.10b0
+matplotlib>=3.8.0
+tqdm>=4.66.0
