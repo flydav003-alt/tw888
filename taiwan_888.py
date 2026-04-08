@@ -1330,7 +1330,8 @@ def load_and_clean_csv(csv_fname):
                 'monthly_rev_yoy','eps_q1_qoq','eps_q1_yoy','debt_ratio',
                 'roe_latest','roe_prev_q','foreign_net_today_value','foreign_net_5d',
                 'pe','pb','peg','dividend_yield','beta_1y','rel_strength_20d',
-                'high_52w','low_52w','bias_5','bias_20','bias_60','weekly_ma13']
+                'high_52w','low_52w','bias_5','bias_20','bias_60','weekly_ma13',
+                'avg_vol_5d_k','avg_vol_20d_k','volume_k']
     for c in num_cols:
         if c in df_raw.columns:
             df_raw[c] = pd.to_numeric(df_raw[c], errors='coerce')
@@ -1787,6 +1788,125 @@ def run_screening(df, N_STOCKS, MARKET_FOREIGN_B, macro):
 
 
 # ============================================================
+# ── PART 2：互補插件判別區
+# ============================================================
+
+def run_plugin(df, t1_top_final, t1a_results, L1_TOP20, S1_full_pool):
+    """
+    ⭐⭐ 互補插件判別區
+    【籌碼強勢清單】（投信認養 / 雙買發動）
+    【技術安全清單】（量縮回踩 / 乖離黃金點）
+    從全部 CSV 標的全面掃描，補充籌碼深度與拉回視角。
+    """
+    t1_top_sids   = {r['sid'] for r in t1_top_final}
+    t1a_sids      = {r['sid'] for r in t1a_results}
+    l1_top20_sids = {r['sid'] for r in L1_TOP20}
+    s1_sids       = {r['sid'] for r in S1_full_pool}
+
+    chip_strong = []
+    tech_safe   = []
+
+    for _, row in df.iterrows():
+        sid   = str(row['stock_id'])
+        name  = str(row.get('name', sid))
+        close = float(row.get('close', 0) or 0)
+        if close <= 0:
+            continue
+
+        # ── 籌碼強勢清單 ────────────────────────────────────
+        chip_sync       = str(row.get('chip_sync', ''))
+        trust_net_today = int(row.get('trust_net_today', 0) or 0)
+        trust_net_5d    = int(row.get('trust_net_5d', 0) or 0)
+        trust_net_20d   = int(row.get('trust_net_20d', 0) or 0)
+        avg_vol_5d_k    = float(row.get('avg_vol_5d_k', 0) or 0)
+
+        # 基本門檻：chip_sync 含 '雙買' 或 trust_net_today > 0
+        basic_chip_ok = ('雙買' in chip_sync) or (trust_net_today > 0)
+        if basic_chip_ok:
+            cond_type = None
+            key_data  = ''
+            # 加強條件依優先序判斷（取第一個符合者）
+            if chip_sync == '雙買' and trust_net_today > 0:
+                cond_type = '雙買發動'
+                key_data  = f'trust_net_today {trust_net_today:+}張 / chip_sync=雙買'
+            elif trust_net_today > 0 and trust_net_20d <= 150:
+                cond_type = '投信新認養'
+                key_data  = f'trust_net_today {trust_net_today:+}張（20d僅{trust_net_20d:+}張）'
+            elif avg_vol_5d_k > 0 and (trust_net_5d / avg_vol_5d_k) > 0.08:
+                ratio     = round(trust_net_5d / avg_vol_5d_k * 100, 1)
+                cond_type = '高認養佔比'
+                key_data  = f'trust_net_5d/avg_vol={ratio}%>8%'
+
+            if cond_type:
+                in_t1_top = sid in t1_top_sids
+                in_t1a    = sid in t1a_sids
+                cross_label = '⭐⭐ 雙系統共振股' if (in_t1_top or in_t1a) else ''
+                suggestion_map = {
+                    '雙買發動':   '投信+主力同步進場，續航力強',
+                    '投信新認養': '新認養訊號，適合長線留意',
+                    '高認養佔比': '投信控盤力明顯，籌碼集中',
+                }
+                chip_strong.append({
+                    'sid': sid, 'name': name, 'close': close,
+                    'cond_type':   cond_type,
+                    'key_data':    key_data,
+                    'suggestion':  suggestion_map[cond_type],
+                    'cross_label': cross_label,
+                    'trust_net_today': trust_net_today,
+                    'chip_sync':   chip_sync,
+                })
+
+        # ── 技術安全清單 ────────────────────────────────────
+        volume_shrink     = bool(row.get('volume_shrink', False))
+        stop_fall_k_flag  = bool(row.get('stop_fall_k', False))
+        price_vs_ma20_pct = float(row.get('price_vs_ma20_pct', 0) or 0)
+        raw_b5  = row.get('bias_5',  np.nan)
+        raw_b20 = row.get('bias_20', np.nan)
+        bias_5  = float(raw_b5)  if not pd.isna(raw_b5)  else np.nan
+        bias_20 = float(raw_b20) if not pd.isna(raw_b20) else np.nan
+
+        tech_type = None
+        tech_data = ''
+
+        if volume_shrink and stop_fall_k_flag and price_vs_ma20_pct > -12:
+            tech_type = '安全回踩'
+            tech_data = (f'volume_shrink=True + stop_fall_k=True'
+                         f' | 月線乖離{price_vs_ma20_pct:.1f}%')
+        elif (not pd.isna(bias_5) and not pd.isna(bias_20)
+              and bias_5 < -4 and bias_20 > -3):
+            tech_type = '乖離黃金點'
+            tech_data = f'bias_5={bias_5:.1f}% / bias_20={bias_20:.1f}%'
+
+        if tech_type:
+            in_l1_top20 = sid in l1_top20_sids
+            in_s1       = sid in s1_sids
+            if in_l1_top20:
+                cross_label = '⭐ 長線低接機會'
+            elif in_s1:
+                cross_label = '⭐ 短線強勢低接'
+            else:
+                cross_label = ''
+            suggestion_map2 = {
+                '安全回踩':   '月線附近無量止跌，可考慮低接',
+                '乖離黃金點': '短線回檔但月線仍有支撐，適合低接',
+            }
+            tech_safe.append({
+                'sid': sid, 'name': name, 'close': close,
+                'tech_type':   tech_type,
+                'tech_data':   tech_data,
+                'suggestion':  suggestion_map2[tech_type],
+                'cross_label': cross_label,
+            })
+
+    chip_strong.sort(key=lambda x: (x['cross_label'] != '⭐⭐ 雙系統共振股',
+                                    -abs(x['trust_net_today'])))
+    tech_safe.sort(key=lambda x: (x['cross_label'] == '', x['tech_type']))
+
+    print(f'  🔌 互補插件 | 籌碼強勢：{len(chip_strong)} 檔 | 技術安全：{len(tech_safe)} 檔')
+    return chip_strong, tech_safe
+
+
+# ============================================================
 # ── PART 2：K 線圖（TWSE API）
 # ============================================================
 
@@ -1903,6 +2023,8 @@ CSS = """<style>
 .sec-green{border-left-color:#3fb950;}
 .sec-orange{border-left-color:#f0883e;}
 .sec-purple{border-left-color:#a371f7;background:linear-gradient(90deg,#16101c,#21262d);}
+.sec-plugin{border-left-color:#39d353;background:linear-gradient(90deg,#0a1f0d,#21262d);}
+.bg-plugin{background:linear-gradient(135deg,#1a7431,#39d353);color:#000;}
 .tbl{width:100%;border-collapse:collapse;background:#161b22;
      border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.4);border:1px solid #30363d;}
 .tbl th{background:#21262d;color:#ffd700;font-size:10px;
@@ -1944,7 +2066,8 @@ CSS = """<style>
 
 def generate_html(t1_top_final, L1_TOP20, L1_full_pool, S1_TOP12, S1_full_pool,
                   t1a_results, t1b_results, z1_results, risk_rules,
-                  N_STOCKS, macro, z1_kline_cache, data_today):
+                  N_STOCKS, macro, z1_kline_cache, data_today,
+                  chip_strong=None, tech_safe=None):
 
     def bdg(txt, cls='bg-gray'):
         return f'<span class="bdg {cls}">{txt}</span>'
@@ -2107,6 +2230,68 @@ def generate_html(t1_top_final, L1_TOP20, L1_full_pool, S1_TOP12, S1_full_pool,
                       f'{kline_html}</div></div>')
         return cards
 
+    def render_plugin(chip_lst, tech_lst):
+        chip_lst = chip_lst or []
+        tech_lst = tech_lst or []
+
+        # ── 籌碼強勢清單表格
+        if chip_lst:
+            chip_cols = [('代號',48),('名稱',72),('類型',70),('關鍵數據',160),('建議觀點',130),('共振標記',90)]
+            chip_thead = ''.join(f'<th style="width:{w}px">{h}</th>' for h,w in chip_cols)
+            chip_rows  = ''
+            for r in chip_lst:
+                type_cls = ('bg-fire' if r['cond_type']=='雙買發動'
+                            else 'bg-blue' if r['cond_type']=='投信新認養'
+                            else 'bg-orange')
+                cross_html = (bdg(r['cross_label'], 'bg-fire')
+                              if r['cross_label'] else '<span class="c-gray">—</span>')
+                chip_rows += (f'<tr><td><b>{r["sid"]}</b></td>'
+                              f'<td style="text-align:left">{r["name"]}</td>'
+                              f'<td>{bdg(r["cond_type"], type_cls)}</td>'
+                              f'<td style="text-align:left;font-size:10px;color:#ffd700">{r["key_data"]}</td>'
+                              f'<td style="text-align:left;font-size:10px">{r["suggestion"]}</td>'
+                              f'<td>{cross_html}</td></tr>')
+            chip_table = (f'<div style="overflow-x:auto"><table class="tbl">'
+                          f'<thead><tr>{chip_thead}</tr></thead>'
+                          f'<tbody>{chip_rows}</tbody></table></div>')
+        else:
+            chip_table = '<div class="empty-msg">今日無符合籌碼強勢條件</div>'
+
+        # ── 技術安全清單表格
+        if tech_lst:
+            tech_cols = [('代號',48),('名稱',72),('類型',78),('關鍵數據',180),('建議觀點',130),('共振標記',90)]
+            tech_thead = ''.join(f'<th style="width:{w}px">{h}</th>' for h,w in tech_cols)
+            tech_rows  = ''
+            for r in tech_lst:
+                type_cls = 'bg-teal' if r['tech_type']=='安全回踩' else 'bg-plugin'
+                cross_html = (bdg(r['cross_label'],
+                                  'bg-gold' if '長線' in r['cross_label'] else 'bg-green')
+                              if r['cross_label'] else '<span class="c-gray">—</span>')
+                tech_rows += (f'<tr><td><b>{r["sid"]}</b></td>'
+                              f'<td style="text-align:left">{r["name"]}</td>'
+                              f'<td>{bdg(r["tech_type"], type_cls)}</td>'
+                              f'<td style="text-align:left;font-size:10px;color:#3fb950">{r["tech_data"]}</td>'
+                              f'<td style="text-align:left;font-size:10px">{r["suggestion"]}</td>'
+                              f'<td>{cross_html}</td></tr>')
+            tech_table = (f'<div style="overflow-x:auto"><table class="tbl">'
+                          f'<thead><tr>{tech_thead}</tr></thead>'
+                          f'<tbody>{tech_rows}</tbody></table></div>')
+        else:
+            tech_table = '<div class="empty-msg">今日無符合技術安全條件</div>'
+
+        note_chip = ('<div style="font-size:10px;color:#8b949e;padding:2px 4px 6px">'
+                     '條件：chip_sync含「雙買」或 trust_net_today&gt;0，再符合：雙買發動 / 投信新認養（20d≤150張）/ 高認養佔比（5d/均量&gt;8%）'
+                     '｜ 出現在 T1-TOP / T1-A → ⭐⭐雙系統共振</div>')
+        note_tech = ('<div style="font-size:10px;color:#8b949e;padding:2px 4px 6px">'
+                     '條件：安全回踩（量縮+止跌K+月線乖離&gt;-12%）或 乖離黃金點（bias_5&lt;-4 且 bias_20&gt;-3）'
+                     '｜ 出現在 L1前20 → ⭐長線低接；出現在 S1 → ⭐短線強勢低接</div>')
+
+        return (f'<div style="font-size:12px;font-weight:bold;padding:6px 4px 2px;color:#39d353">【籌碼強勢清單】（投信認養 / 雙買發動）</div>'
+                + note_chip + chip_table
+                + '<div style="height:10px"></div>'
+                + f'<div style="font-size:12px;font-weight:bold;padding:6px 4px 2px;color:#58a6ff">【技術安全清單】（量縮回踩 / 乖離黃金點）</div>'
+                + note_tech + tech_table)
+
     def render_risk(risk_rules, t1_top_final, S1_TOP12, L1_TOP20):
         items = ''.join(f'<div class="risk-item">🔒 {r}</div>' for r in risk_rules)
         alloc = '<div style="margin-bottom:10px;">'
@@ -2136,26 +2321,28 @@ def generate_html(t1_top_final, L1_TOP20, L1_full_pool, S1_TOP12, S1_full_pool,
         + f'<div class="sub">{data_today} ｜ L1 長線守門 · S1 主力計數 · T1 進場觸發 · Z1 續抱</div>'
         + '</div></div></div>'
         + f'<div class="sumrow">{summary_cards}</div>'
-        + '<div class="sec sec-fire">🔥 ① T1-TOP（最高勝率突破型・條件最嚴苛）</div>'
-        + '<div style="font-size:10px;color:#8b949e;padding:0 4px 6px">止損：跌破MA20 ｜ 止盈：+20%</div>'
-        + render_t1_top(t1_top_final)
-        + '<div class="sec">🌐 ② 今日宏觀濾網</div>'
+        + '<div class="sec">🌐 ① 今日宏觀濾網</div>'
         + render_macro()
-        + f'<div class="sec sec-blue">📊 ③ L1 長線觀察池 前{len(L1_TOP20)}檔（守門通過{len(L1_full_pool)}檔）</div>'
-        + '<div style="font-size:10px;color:#8b949e;padding:0 4px 6px">止損：跌破月線MA20 / 季線MA60 ｜ 止盈：+30%~70%</div>'
-        + render_l1(L1_TOP20)
-        + f'<div class="sec sec-blue">⚡ ④ S1 主力強勢清單（{len(S1_TOP12)}檔）</div>'
+        + f'<div class="sec sec-blue">⚡ ② S1 主力強勢清單（{len(S1_TOP12)}檔）</div>'
         + '<div style="font-size:10px;color:#8b949e;padding:0 4px 6px">止損：跌破MA20 ｜ 止盈：+15%</div>'
         + render_s1(S1_TOP12)
-        + f'<div class="sec sec-green">🎯 ⑤ T1-A（獨立高勝率濾網・全市場{N_STOCKS}檔）</div>'
+        + '<div class="sec sec-fire">🔥 ③ T1-TOP（最高勝率突破型・條件最嚴苛）</div>'
+        + '<div style="font-size:10px;color:#8b949e;padding:0 4px 6px">止損：跌破MA20 ｜ 止盈：+20%</div>'
+        + render_t1_top(t1_top_final)
+        + f'<div class="sec sec-green">🎯 ④ T1-A（獨立高勝率濾網・全市場{N_STOCKS}檔）</div>'
         + '<div style="font-size:10px;color:#8b949e;padding:0 4px 6px">止損：跌破MA20 ｜ 止盈：+10%</div>'
         + render_t1a(t1a_results)
-        + f'<div class="sec sec-orange">📍 ⑥ T1-B 今日可進場清單（拉回型・S1 {len(S1_full_pool)}檔內）</div>'
+        + f'<div class="sec sec-orange">📍 ⑤ T1-B 今日可進場清單（拉回型・S1 {len(S1_full_pool)}檔內）</div>'
         + '<div style="font-size:10px;color:#8b949e;padding:0 4px 6px">止損：跌破MA20 ｜ 止盈：+10%</div>'
         + render_t1b(t1b_results)
+        + f'<div class="sec sec-blue">📊 ⑥ L1 長線觀察池 前{len(L1_TOP20)}檔（守門通過{len(L1_full_pool)}檔）</div>'
+        + '<div style="font-size:10px;color:#8b949e;padding:0 4px 6px">止損：跌破月線MA20 / 季線MA60 ｜ 止盈：+30%~70%</div>'
+        + render_l1(L1_TOP20)
         + '<div class="sec sec-purple">🔄 ⑦ Z1 續抱檢視</div>'
         + render_z1(z1_results)
-        + '<div class="sec sec-fire">🛡️ ⑧ 資金配置建議 + 風險控管鐵律</div>'
+        + f'<div class="sec sec-plugin">🔌 ⑧ 互補插件判別區（籌碼深度 / 拉回視角・全{N_STOCKS}檔掃描）</div>'
+        + render_plugin(chip_strong, tech_safe)
+        + '<div class="sec sec-fire">🛡️ ⑨ 資金配置建議 + 風險控管鐵律</div>'
         + render_risk(risk_rules, t1_top_final, S1_TOP12, L1_TOP20)
         + f'<div class="footer">台股發發發系統 v2.0 ｜ {data_today} ｜ 僅供參考，不構成投資建議</div>'
         + '</div>'
@@ -2331,6 +2518,12 @@ def main():
      N_STOCKS, macro) = run_screening(df2, N_STOCKS, MARKET_FOREIGN_B, macro)
 
     print('='*58)
+    print('🔌 Part2 Step 3b: 互補插件判別區')
+    print('='*58)
+    chip_strong, tech_safe = run_plugin(
+        df2, t1_top_final, t1a_results, L1_TOP20, S1_full_pool)
+
+    print('='*58)
     print('📊 Part2 Step 4: Z1 K線圖')
     print('='*58)
     z1_kline_cache = fetch_z1_klines(z1_results)
@@ -2338,7 +2531,8 @@ def main():
     html_fname = generate_html(
         t1_top_final, L1_TOP20, L1_full_pool, S1_TOP12, S1_full_pool,
         t1a_results, t1b_results, z1_results, risk_rules,
-        N_STOCKS, macro, z1_kline_cache, data_today)
+        N_STOCKS, macro, z1_kline_cache, data_today,
+        chip_strong=chip_strong, tech_safe=tech_safe)
 
     # 複製為 index.html（GitHub Pages 固定網址）
     import shutil
