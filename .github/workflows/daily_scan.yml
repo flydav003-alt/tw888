@@ -48,25 +48,25 @@ jobs:
           TOP500_PATH:      top500.csv
         run: python taiwan_888.py
 
-      - name: 推送報告（只保留 index.html，不塞舊檔）
+      - name: 推送報告到 docs（固定網址，倉庫乾淨）
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          mkdir -p output
+          mkdir -p docs
 
-          # 把帶日期的 HTML 改名為 index.html（固定網址）
+          # 把今天的 HTML 移到 docs/index.html
           NEW_HTML=$(ls output/taiwan_888_*.html 2>/dev/null | head -1)
           if [ -n "$NEW_HTML" ]; then
-            mv "$NEW_HTML" output/index.html
+            cp "$NEW_HTML" docs/index.html
           fi
 
-          # 從 git 移除帶日期的舊檔（保持倉庫乾淨）
+          # 清掉 output 裡帶日期的舊檔
           git rm -f output/taiwan_888_*.html 2>/dev/null || true
           git rm -f output/taiwan_3systems_*.csv 2>/dev/null || true
 
-          # 只加入 index.html
-          git add output/index.html
+          # 加入 docs/index.html
+          git add docs/index.html
 
           git diff --cached --quiet || git commit -m "Update: 台股發發發報告 $(date +'%Y-%m-%d')"
           git push
