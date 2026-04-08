@@ -1482,7 +1482,7 @@ def run_screening(df, N_STOCKS, MARKET_FOREIGN_B, macro):
     def has_valid_cross(note):
         if pd.isna(note) or not note: return False
         s = str(note)
-        return any(k in s for k in ['MA5穿MA20','MA10穿MA20']) and parse_cross_days(s) <= 2
+        return any(k in s for k in ['MA5穿MA20','MA10穿MA20', '雙穿MA20']) and parse_cross_days(s) <= 3
 
     def run_t1_top(df):
         results = []
