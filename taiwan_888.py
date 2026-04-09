@@ -1788,122 +1788,123 @@ def run_screening(df, N_STOCKS, MARKET_FOREIGN_B, macro):
 
 
 # ============================================================
-# ── PART 2：互補插件判別區
+# ── PART 2：下跌趨勢最高勝率拉回共振計分
 # ============================================================
 
-def run_plugin(df, t1_top_final, t1a_results, L1_TOP20, S1_full_pool):
-    """
-    ⭐⭐ 互補插件判別區
-    【籌碼強勢清單】（投信認養 / 雙買發動）
-    【技術安全清單】（量縮回踩 / 乖離黃金點）
-    從全部 CSV 標的全面掃描，補充籌碼深度與拉回視角。
-    """
-    t1_top_sids   = {r['sid'] for r in t1_top_final}
-    t1a_sids      = {r['sid'] for r in t1a_results}
-    l1_top20_sids = {r['sid'] for r in L1_TOP20}
-    s1_sids       = {r['sid'] for r in S1_full_pool}
+# ── 計分參數（對應 plugin_score_test_v2.py Cell 3）────────────
+_W_C1             = 4.0   # 雙買發動股
+_W_C4             = 3.0   # 安全回踩
+_W_C5             = 2.0   # 乖離黃金點
+_W_C2             = 1.0   # 投信新認養
+_SCORE_MIN        = 6.0   # 6分以下不展示
+_TOP_N            = 20    # 最多顯示幾筆
+_GRADE_AAA        = 8.0   # ⭐⭐⭐ 極強共振
+_GRADE_AA         = 6.5   # ⭐⭐  強力推薦
+# 6.0 ~ 6.4 → ⭐ 值得留意
 
-    chip_strong = []
-    tech_safe   = []
+def run_downtrend_plugin(df):
+    """
+    🔌 下跌趨勢最高勝率拉回共振計分
+    綜合加權計分（滿分10分），6分以上列入，最多顯示前20檔。
+    C1（雙買發動股4分） + C4（安全回踩3分） + C5（乖離黃金點2分） + C2（投信新認養1分）
+    """
+    _df = df.copy()
 
-    for _, row in df.iterrows():
+    # ── 四條件布林 ───────────────────────────────────────────────
+    def _safe_bool(col):
+        return _df[col].astype(str).str.strip().str.lower().map(
+            {'true': True, 'false': False, '1': True, '0': False}
+        ).fillna(False)
+
+    chip_sync_s       = _df['chip_sync'].astype(str).str.strip()
+    trust_today_s     = pd.to_numeric(_df['trust_net_today'], errors='coerce').fillna(0)
+    trust_20d_s       = pd.to_numeric(_df['trust_net_20d'],   errors='coerce').fillna(0)
+    ma20_pct_s        = pd.to_numeric(_df['price_vs_ma20_pct'], errors='coerce').fillna(0)
+    bias_5_s          = pd.to_numeric(_df['bias_5'],  errors='coerce').fillna(0)
+    bias_20_s         = pd.to_numeric(_df['bias_20'], errors='coerce').fillna(0)
+    vol_shrink_s      = _safe_bool('volume_shrink')
+    stop_fall_s       = _safe_bool('stop_fall_k')
+
+    c1 = (chip_sync_s == '雙買') & (trust_today_s > 0)
+    c4 = vol_shrink_s & stop_fall_s & (ma20_pct_s >= -12)
+    c5 = (bias_5_s <= -3) & (bias_20_s >= -5)
+    c2 = (trust_today_s > 1000) & (trust_20d_s > -200)
+
+    score = (c1.astype(float) * _W_C1 +
+             c4.astype(float) * _W_C4 +
+             c5.astype(float) * _W_C5 +
+             c2.astype(float) * _W_C2)
+
+    _df['_c1']    = c1; _df['_c2'] = c2
+    _df['_c4']    = c4; _df['_c5'] = c5
+    _df['_score'] = score
+
+    hit = (_df[_df['_score'] >= _SCORE_MIN]
+           .sort_values('_score', ascending=False)
+           .head(_TOP_N)
+           .copy())
+
+    results = []
+    for _, row in hit.iterrows():
         sid   = str(row['stock_id'])
         name  = str(row.get('name', sid))
         close = float(row.get('close', 0) or 0)
-        if close <= 0:
-            continue
+        sc    = float(row['_score'])
 
-        # ── 籌碼強勢清單 ────────────────────────────────────
-        chip_sync       = str(row.get('chip_sync', ''))
-        trust_net_today = int(row.get('trust_net_today', 0) or 0)
-        trust_net_5d    = int(row.get('trust_net_5d', 0) or 0)
-        trust_net_20d   = int(row.get('trust_net_20d', 0) or 0)
-        avg_vol_5d_k    = float(row.get('avg_vol_5d_k', 0) or 0)
+        # 推薦等級
+        grade_str = ('⭐⭐⭐' if sc >= _GRADE_AAA
+                     else '⭐⭐' if sc >= _GRADE_AA
+                     else '⭐')
 
-        # 基本門檻：chip_sync 含 '雙買' 或 trust_net_today > 0
-        basic_chip_ok = ('雙買' in chip_sync) or (trust_net_today > 0)
-        if basic_chip_ok:
-            cond_type = None
-            key_data  = ''
-            # 加強條件依優先序判斷（取第一個符合者）
-            if chip_sync == '雙買' and trust_net_today > 0:
-                cond_type = '雙買發動'
-                key_data  = f'trust_net_today {trust_net_today:+}張 / chip_sync=雙買'
-            elif trust_net_today > 0 and trust_net_20d <= 150:
-                cond_type = '投信新認養'
-                key_data  = f'trust_net_today {trust_net_today:+}張（20d僅{trust_net_20d:+}張）'
-            elif avg_vol_5d_k > 0 and (trust_net_5d / avg_vol_5d_k) > 0.08:
-                ratio     = round(trust_net_5d / avg_vol_5d_k * 100, 1)
-                cond_type = '高認養佔比'
-                key_data  = f'trust_net_5d/avg_vol={ratio}%>8%'
+        # 符合條件字串
+        parts = []
+        if row['_c1']: parts.append('雙買發動股')
+        if row['_c4']: parts.append('安全回踩')
+        if row['_c5']: parts.append('乖離黃金點')
+        if row['_c2']: parts.append('投信新認養')
+        cond_str = ' + '.join(parts)
 
-            if cond_type:
-                in_t1_top = sid in t1_top_sids
-                in_t1a    = sid in t1a_sids
-                cross_label = '⭐⭐ 雙系統共振股' if (in_t1_top or in_t1a) else ''
-                suggestion_map = {
-                    '雙買發動':   '投信+主力同步進場，續航力強',
-                    '投信新認養': '新認養訊號，適合長線留意',
-                    '高認養佔比': '投信控盤力明顯，籌碼集中',
-                }
-                chip_strong.append({
-                    'sid': sid, 'name': name, 'close': close,
-                    'cond_type':   cond_type,
-                    'key_data':    key_data,
-                    'suggestion':  suggestion_map[cond_type],
-                    'cross_label': cross_label,
-                    'trust_net_today': trust_net_today,
-                    'chip_sync':   chip_sync,
-                })
+        # 關鍵數據
+        t_today = int(row.get('trust_net_today', 0) or 0)
+        t_20d   = int(row.get('trust_net_20d',   0) or 0)
+        ma_pct  = float(row.get('price_vs_ma20_pct', 0) or 0)
+        b5      = float(row.get('bias_5',  0) or 0)
+        b20     = float(row.get('bias_20', 0) or 0)
+        key_data = (f'今日{t_today:+,}張 20d={t_20d:+,}張 '
+                    f'MA20%={ma_pct:+.1f}% b5={b5:.1f} b20={b20:.1f}')
 
-        # ── 技術安全清單 ────────────────────────────────────
-        volume_shrink     = bool(row.get('volume_shrink', False))
-        stop_fall_k_flag  = bool(row.get('stop_fall_k', False))
-        price_vs_ma20_pct = float(row.get('price_vs_ma20_pct', 0) or 0)
-        raw_b5  = row.get('bias_5',  np.nan)
-        raw_b20 = row.get('bias_20', np.nan)
-        bias_5  = float(raw_b5)  if not pd.isna(raw_b5)  else np.nan
-        bias_20 = float(raw_b20) if not pd.isna(raw_b20) else np.nan
+        # 建議觀點
+        if sc >= _GRADE_AAA:
+            suggest = '極強共振，可積極低接'
+        elif sc >= _GRADE_AA:
+            suggest = '強力共振，可考慮分批布局'
+        else:
+            suggest = '技術回踩中，留意量縮止穩後進場'
 
-        tech_type = None
-        tech_data = ''
+        # 標註
+        tags = []
+        if sc >= _GRADE_AAA:   tags.append('🔥 強共振')
+        if row['_c1']:          tags.append('💪 雙買發動')
+        if row['_c4']:          tags.append('🛡️ 安全回踩')
+        tag_str = ' '.join(tags)
 
-        if volume_shrink and stop_fall_k_flag and price_vs_ma20_pct > -12:
-            tech_type = '安全回踩'
-            tech_data = (f'volume_shrink=True + stop_fall_k=True'
-                         f' | 月線乖離{price_vs_ma20_pct:.1f}%')
-        elif (not pd.isna(bias_5) and not pd.isna(bias_20)
-              and bias_5 < -4 and bias_20 > -3):
-            tech_type = '乖離黃金點'
-            tech_data = f'bias_5={bias_5:.1f}% / bias_20={bias_20:.1f}%'
+        results.append({
+            'sid': sid, 'name': name, 'close': close,
+            'score':     sc,
+            'grade':     grade_str,
+            'cond_str':  cond_str,
+            'key_data':  key_data,
+            'suggest':   suggest,
+            'tags':      tag_str,
+        })
 
-        if tech_type:
-            in_l1_top20 = sid in l1_top20_sids
-            in_s1       = sid in s1_sids
-            if in_l1_top20:
-                cross_label = '⭐ 長線低接機會'
-            elif in_s1:
-                cross_label = '⭐ 短線強勢低接'
-            else:
-                cross_label = ''
-            suggestion_map2 = {
-                '安全回踩':   '月線附近無量止跌，可考慮低接',
-                '乖離黃金點': '短線回檔但月線仍有支撐，適合低接',
-            }
-            tech_safe.append({
-                'sid': sid, 'name': name, 'close': close,
-                'tech_type':   tech_type,
-                'tech_data':   tech_data,
-                'suggestion':  suggestion_map2[tech_type],
-                'cross_label': cross_label,
-            })
-
-    chip_strong.sort(key=lambda x: (x['cross_label'] != '⭐⭐ 雙系統共振股',
-                                    -abs(x['trust_net_today'])))
-    tech_safe.sort(key=lambda x: (x['cross_label'] == '', x['tech_type']))
-
-    print(f'  🔌 互補插件 | 籌碼強勢：{len(chip_strong)} 檔 | 技術安全：{len(tech_safe)} 檔')
-    return chip_strong, tech_safe
+    # 統計輸出
+    print(f'  🔌 下跌趨勢拉回共振 | 掃描{len(_df)}檔 '
+          f'| ⭐⭐⭐:{(score>=_GRADE_AAA).sum()} '
+          f'⭐⭐:{((score>=_GRADE_AA)&(score<_GRADE_AAA)).sum()} '
+          f'⭐:{((score>=_SCORE_MIN)&(score<_GRADE_AA)).sum()} '
+          f'| 列入{len(results)}檔')
+    return results
 
 
 # ============================================================
@@ -2023,8 +2024,10 @@ CSS = """<style>
 .sec-green{border-left-color:#3fb950;}
 .sec-orange{border-left-color:#f0883e;}
 .sec-purple{border-left-color:#a371f7;background:linear-gradient(90deg,#16101c,#21262d);}
-.sec-plugin{border-left-color:#39d353;background:linear-gradient(90deg,#0a1f0d,#21262d);}
-.bg-plugin{background:linear-gradient(135deg,#1a7431,#39d353);color:#000;}
+.sec-down{border-left-color:#58a6ff;background:linear-gradient(90deg,#0a1020,#21262d);}
+.grade-aaa{background:linear-gradient(135deg,#b08800,#ffd700);color:#000;font-weight:bold;}
+.grade-aa{background:linear-gradient(135deg,#1f6feb,#58a6ff);color:#fff;font-weight:bold;}
+.grade-a{background:#21262d;color:#8b949e;border:1px solid #30363d;}
 .tbl{width:100%;border-collapse:collapse;background:#161b22;
      border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.4);border:1px solid #30363d;}
 .tbl th{background:#21262d;color:#ffd700;font-size:10px;
@@ -2067,7 +2070,7 @@ CSS = """<style>
 def generate_html(t1_top_final, L1_TOP20, L1_full_pool, S1_TOP12, S1_full_pool,
                   t1a_results, t1b_results, z1_results, risk_rules,
                   N_STOCKS, macro, z1_kline_cache, data_today,
-                  chip_strong=None, tech_safe=None):
+                  downtrend_hits=None):
 
     def bdg(txt, cls='bg-gray'):
         return f'<span class="bdg {cls}">{txt}</span>'
@@ -2230,67 +2233,85 @@ def generate_html(t1_top_final, L1_TOP20, L1_full_pool, S1_TOP12, S1_full_pool,
                       f'{kline_html}</div></div>')
         return cards
 
-    def render_plugin(chip_lst, tech_lst):
-        chip_lst = chip_lst or []
-        tech_lst = tech_lst or []
+    def render_downtrend(hits):
+        hits = hits or []
+        if not hits:
+            return '<div class="empty-msg">🔌 今日無符合條件（需 6 分以上）— 市場條件未達拉回共振標準</div>'
 
-        # ── 籌碼強勢清單表格
-        if chip_lst:
-            chip_cols = [('代號',48),('名稱',72),('類型',70),('關鍵數據',160),('建議觀點',130),('共振標記',90)]
-            chip_thead = ''.join(f'<th style="width:{w}px">{h}</th>' for h,w in chip_cols)
-            chip_rows  = ''
-            for r in chip_lst:
-                type_cls = ('bg-fire' if r['cond_type']=='雙買發動'
-                            else 'bg-blue' if r['cond_type']=='投信新認養'
-                            else 'bg-orange')
-                cross_html = (bdg(r['cross_label'], 'bg-fire')
-                              if r['cross_label'] else '<span class="c-gray">—</span>')
-                chip_rows += (f'<tr><td><b>{r["sid"]}</b></td>'
-                              f'<td style="text-align:left">{r["name"]}</td>'
-                              f'<td>{bdg(r["cond_type"], type_cls)}</td>'
-                              f'<td style="text-align:left;font-size:10px;color:#ffd700">{r["key_data"]}</td>'
-                              f'<td style="text-align:left;font-size:10px">{r["suggestion"]}</td>'
-                              f'<td>{cross_html}</td></tr>')
-            chip_table = (f'<div style="overflow-x:auto"><table class="tbl">'
-                          f'<thead><tr>{chip_thead}</tr></thead>'
-                          f'<tbody>{chip_rows}</tbody></table></div>')
-        else:
-            chip_table = '<div class="empty-msg">今日無符合籌碼強勢條件</div>'
+        # ── 統計列 ────────────────────────────────────────────────
+        aaa = sum(1 for r in hits if r['score'] >= _GRADE_AAA)
+        aa  = sum(1 for r in hits if _GRADE_AA <= r['score'] < _GRADE_AAA)
+        a   = sum(1 for r in hits if _SCORE_MIN <= r['score'] < _GRADE_AA)
+        stat_html = (
+            f'<div style="display:flex;gap:10px;flex-wrap:wrap;padding:8px 4px 10px">'
+            f'<div style="background:#1a1500;border:1px solid #b08800;border-radius:8px;padding:6px 14px;font-size:11px">'
+            f'<span style="color:#ffd700;font-weight:bold">⭐⭐⭐ {aaa} 檔</span>'
+            f'<span style="color:#8b949e;font-size:9px;margin-left:4px">極強共振 ≥8分</span></div>'
+            f'<div style="background:#0a1828;border:1px solid #1f6feb;border-radius:8px;padding:6px 14px;font-size:11px">'
+            f'<span style="color:#58a6ff;font-weight:bold">⭐⭐ {aa} 檔</span>'
+            f'<span style="color:#8b949e;font-size:9px;margin-left:4px">強力推薦 6.5~7.9分</span></div>'
+            f'<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px 14px;font-size:11px">'
+            f'<span style="color:#c9d1d9;font-weight:bold">⭐ {a} 檔</span>'
+            f'<span style="color:#8b949e;font-size:9px;margin-left:4px">值得留意 6.0~6.4分</span></div>'
+            f'<div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:6px 14px;font-size:11px">'
+            f'<span style="color:#8b949e">合計列入 {len(hits)} 檔（最多{_TOP_N}）</span></div>'
+            f'</div>'
+        )
 
-        # ── 技術安全清單表格
-        if tech_lst:
-            tech_cols = [('代號',48),('名稱',72),('類型',78),('關鍵數據',180),('建議觀點',130),('共振標記',90)]
-            tech_thead = ''.join(f'<th style="width:{w}px">{h}</th>' for h,w in tech_cols)
-            tech_rows  = ''
-            for r in tech_lst:
-                type_cls = 'bg-teal' if r['tech_type']=='安全回踩' else 'bg-plugin'
-                cross_html = (bdg(r['cross_label'],
-                                  'bg-gold' if '長線' in r['cross_label'] else 'bg-green')
-                              if r['cross_label'] else '<span class="c-gray">—</span>')
-                tech_rows += (f'<tr><td><b>{r["sid"]}</b></td>'
-                              f'<td style="text-align:left">{r["name"]}</td>'
-                              f'<td>{bdg(r["tech_type"], type_cls)}</td>'
-                              f'<td style="text-align:left;font-size:10px;color:#3fb950">{r["tech_data"]}</td>'
-                              f'<td style="text-align:left;font-size:10px">{r["suggestion"]}</td>'
-                              f'<td>{cross_html}</td></tr>')
-            tech_table = (f'<div style="overflow-x:auto"><table class="tbl">'
-                          f'<thead><tr>{tech_thead}</tr></thead>'
-                          f'<tbody>{tech_rows}</tbody></table></div>')
-        else:
-            tech_table = '<div class="empty-msg">今日無符合技術安全條件</div>'
+        # ── 表格 ──────────────────────────────────────────────────
+        cols = [('總分',44),('代號',50),('名稱',72),('收盤',50),
+                ('推薦等級',64),('符合條件',160),('關鍵數據',200),('建議觀點',130),('標註',110)]
+        thead = ''.join(f'<th style="width:{w}px">{h}</th>' for h,w in cols)
+        rows  = ''
+        for r in hits:
+            sc   = r['score']
+            # 分數顏色
+            if sc >= _GRADE_AAA:
+                sc_cls  = 'c-gold'
+                sc_bg   = 'background:#1a1500'
+                gr_cls  = 'grade-aaa'
+            elif sc >= _GRADE_AA:
+                sc_cls  = 'c-blue'
+                sc_bg   = 'background:#0a1828'
+                gr_cls  = 'grade-aa'
+            else:
+                sc_cls  = 'c-gray'
+                sc_bg   = ''
+                gr_cls  = 'grade-a'
 
-        note_chip = ('<div style="font-size:10px;color:#8b949e;padding:2px 4px 6px">'
-                     '條件：chip_sync含「雙買」或 trust_net_today&gt;0，再符合：雙買發動 / 投信新認養（20d≤150張）/ 高認養佔比（5d/均量&gt;8%）'
-                     '｜ 出現在 T1-TOP / T1-A → ⭐⭐雙系統共振</div>')
-        note_tech = ('<div style="font-size:10px;color:#8b949e;padding:2px 4px 6px">'
-                     '條件：安全回踩（量縮+止跌K+月線乖離&gt;-12%）或 乖離黃金點（bias_5&lt;-4 且 bias_20&gt;-3）'
-                     '｜ 出現在 L1前20 → ⭐長線低接；出現在 S1 → ⭐短線強勢低接</div>')
+            # 條件標籤（小badge）
+            cond_parts = r['cond_str'].split(' + ')
+            cond_html  = ' '.join(
+                f'<span class="bdg '
+                + ('bg-fire' if '雙買' in p else
+                   'bg-teal' if '安全' in p else
+                   'bg-blue' if '乖離' in p else 'bg-gray')
+                + f'">{p}</span>'
+                for p in cond_parts if p
+            )
 
-        return (f'<div style="font-size:12px;font-weight:bold;padding:6px 4px 2px;color:#39d353">【籌碼強勢清單】（投信認養 / 雙買發動）</div>'
-                + note_chip + chip_table
-                + '<div style="height:10px"></div>'
-                + f'<div style="font-size:12px;font-weight:bold;padding:6px 4px 2px;color:#58a6ff">【技術安全清單】（量縮回踩 / 乖離黃金點）</div>'
-                + note_tech + tech_table)
+            rows += (
+                f'<tr style="{sc_bg}">'
+                f'<td class="{sc_cls}" style="font-size:14px;font-weight:bold">{sc:.0f}</td>'
+                f'<td><b>{r["sid"]}</b></td>'
+                f'<td style="text-align:left">{r["name"]}</td>'
+                f'<td class="c-gold"><b>{r["close"]:.1f}</b></td>'
+                f'<td><span class="bdg {gr_cls}">{r["grade"]}</span></td>'
+                f'<td style="text-align:left">{cond_html}</td>'
+                f'<td style="text-align:left;font-size:10px;color:#adbac7">{r["key_data"]}</td>'
+                f'<td style="text-align:left;font-size:10px">{r["suggest"]}</td>'
+                f'<td style="text-align:left;font-size:10px;color:#f0883e">{r["tags"]}</td>'
+                f'</tr>'
+            )
+
+        note = ('<div style="font-size:10px;color:#8b949e;padding:2px 4px 8px">'
+                '計分：雙買發動股 4分 ｜ 安全回踩 3分 ｜ 乖離黃金點 2分 ｜ 投信新認養 1分'
+                '｜ 滿分 10分，6分以上列入 ｜ 本區為下跌震盪補充視角，不影響原主系統推薦</div>')
+
+        table = (f'<div style="overflow-x:auto"><table class="tbl">'
+                 f'<thead><tr>{thead}</tr></thead>'
+                 f'<tbody>{rows}</tbody></table></div>')
+        return stat_html + note + table
 
     def render_risk(risk_rules, t1_top_final, S1_TOP12, L1_TOP20):
         items = ''.join(f'<div class="risk-item">🔒 {r}</div>' for r in risk_rules)
@@ -2340,8 +2361,8 @@ def generate_html(t1_top_final, L1_TOP20, L1_full_pool, S1_TOP12, S1_full_pool,
         + render_l1(L1_TOP20)
         + '<div class="sec sec-purple">🔄 ⑦ Z1 續抱檢視</div>'
         + render_z1(z1_results)
-        + f'<div class="sec sec-plugin">🔌 ⑧ 互補插件判別區（籌碼深度 / 拉回視角・全{N_STOCKS}檔掃描）</div>'
-        + render_plugin(chip_strong, tech_safe)
+        + f'<div class="sec sec-down">🔌 ⑧ 下跌趨勢最高勝率拉回共振（全{N_STOCKS}檔掃描・6分以上列入）</div>'
+        + render_downtrend(downtrend_hits)
         + '<div class="sec sec-fire">🛡️ ⑨ 資金配置建議 + 風險控管鐵律</div>'
         + render_risk(risk_rules, t1_top_final, S1_TOP12, L1_TOP20)
         + f'<div class="footer">台股發發發系統 v2.0 ｜ {data_today} ｜ 僅供參考，不構成投資建議</div>'
@@ -2518,10 +2539,9 @@ def main():
      N_STOCKS, macro) = run_screening(df2, N_STOCKS, MARKET_FOREIGN_B, macro)
 
     print('='*58)
-    print('🔌 Part2 Step 3b: 互補插件判別區')
+    print('🔌 Part2 Step 3b: 下跌趨勢最高勝率拉回共振')
     print('='*58)
-    chip_strong, tech_safe = run_plugin(
-        df2, t1_top_final, t1a_results, L1_TOP20, S1_full_pool)
+    downtrend_hits = run_downtrend_plugin(df2)
 
     print('='*58)
     print('📊 Part2 Step 4: Z1 K線圖')
@@ -2532,7 +2552,7 @@ def main():
         t1_top_final, L1_TOP20, L1_full_pool, S1_TOP12, S1_full_pool,
         t1a_results, t1b_results, z1_results, risk_rules,
         N_STOCKS, macro, z1_kline_cache, data_today,
-        chip_strong=chip_strong, tech_safe=tech_safe)
+        downtrend_hits=downtrend_hits)
 
     # 複製為 index.html（GitHub Pages 固定網址）
     import shutil
