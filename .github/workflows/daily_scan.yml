@@ -3,7 +3,7 @@ name: 台股發發發 每日自動執行
 on:
   # 台灣時間 18:00 = UTC 10:00，週一到週五
   schedule:
-    - cron: '49 07 * * 1-5'
+    - cron: '06 08 * * 1-5'
 
   # 手動觸發（測試用）
   workflow_dispatch:
