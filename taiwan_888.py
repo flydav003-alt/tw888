@@ -2001,71 +2001,70 @@ def fetch_z1_klines(z1_results):
 
 # ============================================================
 # ── PART 3：MAX 三系統（P5長線 · V7強勢 · T1買點）
-#    台股三系統資料庫 Max 最終版移植
-#    與 PART 1/2 共用同一 CSV 資料庫，df2 直接傳入即可
+#    共用同一 CSV 資料庫，df2 直接傳入即可
 # ============================================================
 
-CSS_MAX = """<style>
-
-#max-wrap * {box-sizing:border-box;}
-#max-wrap .rep {font-family:"Microsoft JhengHei","Noto Sans TC",Arial,sans-serif;
+CSS_MAX = """
+<style>
+*{box-sizing:border-box;}
+.rep{font-family:"Microsoft JhengHei","Noto Sans TC",Arial,sans-serif;
      font-size:12px;background:#f0f2f5;padding:10px;}
-#max-wrap .hdr {background:linear-gradient(135deg,#1a1a2e,#0f3460);
+.hdr{background:linear-gradient(135deg,#1a1a2e,#0f3460);
      color:white;padding:14px 18px;border-radius:10px;margin-bottom:8px;}
-#max-wrap .hdr h1 {margin:0;font-size:18px;}
-#max-wrap .hdr .sub {font-size:10px;color:#bbb;margin-top:3px;}
-#max-wrap .hdr .mcr {font-size:11px;margin-top:5px;}
-#max-wrap .danger-bar {background:#c0392b;color:white;font-weight:bold;font-size:13px;
+.hdr h1{margin:0;font-size:18px;}
+.hdr .sub{font-size:10px;color:#bbb;margin-top:3px;}
+.hdr .mcr{font-size:11px;margin-top:5px;}
+.danger-bar{background:#c0392b;color:white;font-weight:bold;font-size:13px;
             padding:10px 16px;border-radius:8px;margin:6px 0;
             border:2px solid #922b21;text-align:center;}
-#max-wrap .sumrow {display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;}
-#max-wrap .scard {flex:1;min-width:80px;padding:8px;border-radius:8px;
+.sumrow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;}
+.scard{flex:1;min-width:80px;padding:8px;border-radius:8px;
        color:white;text-align:center;}
-#max-wrap .scard .n {font-size:22px;font-weight:bold;}
-#max-wrap .scard .lb {font-size:10px;opacity:.85;}
-#max-wrap .sec {font-size:13px;font-weight:bold;border-left:4px solid #1a1a2e;
+.scard .n{font-size:22px;font-weight:bold;}
+.scard .lb{font-size:10px;opacity:.85;}
+.sec{font-size:13px;font-weight:bold;border-left:4px solid #1a1a2e;
      padding-left:7px;margin:12px 0 4px;color:#1a1a2e;}
-#max-wrap .tbl {width:100%;border-collapse:collapse;background:white;
+.tbl{width:100%;border-collapse:collapse;background:white;
      border-radius:8px;overflow:hidden;table-layout:fixed;
      box-shadow:0 1px 6px rgba(0,0,0,.1);}
-#max-wrap .tbl th {background:#1a1a2e;color:#ffd700;font-size:10px;
+.tbl th{background:#1a1a2e;color:#ffd700;font-size:10px;
         padding:5px 3px;text-align:center;white-space:nowrap;}
-#max-wrap .tbl td {font-size:10px;padding:4px 3px;border-bottom:1px solid #f0f0f0;
+.tbl td{font-size:10px;padding:4px 3px;border-bottom:1px solid #f0f0f0;
         text-align:center;overflow:hidden;white-space:nowrap;}
-#max-wrap .tbl tr:nth-child(even) td {background:#f8f9fa;}
-#max-wrap .mini-tbl {margin:6px 0 10px;border-left:3px solid #e67e22;padding-left:6px;}
-#max-wrap .mini-tbl .mini-title {font-size:11px;font-weight:bold;color:#e67e22;margin-bottom:3px;}
-#max-wrap .bdg {display:inline-block;padding:1px 5px;border-radius:5px;
+.tbl tr:nth-child(even) td{background:#f8f9fa;}
+.mini-tbl{margin:6px 0 10px;border-left:3px solid #e67e22;padding-left:6px;}
+.mini-tbl .mini-title{font-size:11px;font-weight:bold;color:#e67e22;margin-bottom:3px;}
+.bdg{display:inline-block;padding:1px 5px;border-radius:5px;
      font-size:10px;font-weight:bold;color:white;white-space:nowrap;}
-#max-wrap .wline-bdg {display:inline-block;background:#e67e22;color:white;
+.wline-bdg{display:inline-block;background:#e67e22;color:white;
            padding:1px 4px;border-radius:3px;font-size:9px;
            font-weight:bold;border:1px solid #d35400;margin-left:2px;}
-#max-wrap .card {background:white;border-radius:8px;padding:10px 12px;
+.card{background:white;border-radius:8px;padding:10px 12px;
       margin:4px 0;box-shadow:0 1px 4px rgba(0,0,0,.08);}
-#max-wrap .face-row {display:flex;align-items:baseline;gap:5px;margin:3px 0;font-size:11px;}
-#max-wrap .face-lbl {font-weight:bold;min-width:54px;color:#333;}
-#max-wrap .face-sc {font-weight:bold;white-space:nowrap;min-width:42px;}
-#max-wrap .face-det {flex:1;color:#555;line-height:1.5;}
-#max-wrap .t1card {border-radius:8px;padding:8px 11px;margin:4px 0;
+.face-row{display:flex;align-items:baseline;gap:5px;margin:3px 0;font-size:11px;}
+.face-lbl{font-weight:bold;min-width:54px;color:#333;}
+.face-sc{font-weight:bold;white-space:nowrap;min-width:42px;}
+.face-det{flex:1;color:#555;line-height:1.5;}
+.t1card{border-radius:8px;padding:8px 11px;margin:4px 0;
         background:white;border-left:4px solid #ccc;}
-#max-wrap .t1card .hd {font-size:11px;font-weight:bold;margin-bottom:3px;}
-#max-wrap .t1card .bd {font-size:10px;color:#444;line-height:1.6;}
-#max-wrap .bkban {background:#e67e22;color:white;padding:6px 10px;
+.t1card .hd{font-size:11px;font-weight:bold;margin-bottom:3px;}
+.t1card .bd{font-size:10px;color:#444;line-height:1.6;}
+.bkban{background:#e67e22;color:white;padding:6px 10px;
        border-radius:6px 6px 0 0;font-size:11px;font-weight:bold;}
-#max-wrap .ma13ban {background:linear-gradient(135deg,#922b21,#c0392b);
+.ma13ban{background:linear-gradient(135deg,#922b21,#c0392b);
          color:white;padding:10px 14px;border-radius:9px;margin:10px 0 4px;}
-#max-wrap .ma13ban b {font-size:13px;}
-#max-wrap .ma13ban small {font-size:10px;opacity:.8;display:block;margin-top:3px;}
-#max-wrap .c-g {color:#27ae60;font-weight:bold;} .c-b{color:#2980b9;font-weight:bold;}
-#max-wrap .c-o {color:#e67e22;font-weight:bold;} .c-r{color:#c0392b;font-weight:bold;}
-#max-wrap .bg-g {background:#27ae60;} .bg-b{background:#2980b9;}
-#max-wrap .bg-o {background:#e67e22;} .bg-r{background:#c0392b;}
-#max-wrap .bg-t {background:#16a085;} .bg-dk{background:#1a1a2e;} .bg-gy{background:#7f8c8d;}
+.ma13ban b{font-size:13px;}
+.ma13ban small{font-size:10px;opacity:.8;display:block;margin-top:3px;}
+.c-g{color:#27ae60;font-weight:bold;} .c-b{color:#2980b9;font-weight:bold;}
+.c-o{color:#e67e22;font-weight:bold;} .c-r{color:#c0392b;font-weight:bold;}
+.bg-g{background:#27ae60;} .bg-b{background:#2980b9;}
+.bg-o{background:#e67e22;} .bg-r{background:#c0392b;}
+.bg-t{background:#16a085;} .bg-dk{background:#1a1a2e;} .bg-gy{background:#7f8c8d;}
+</style>
+"""
 
-</style>"""
 
-
-# ── P5 評分引擎 ─────────────────────────────────────────────
+# ── P5 評分引擎
 P5_PASS = 100
 
 def calc_p5(row):
@@ -2288,7 +2287,7 @@ def run_p5(df):
 # ══════════════════════════════════════════════════════════════════
 
 
-# ── V7 v7.5 超嚴格版評分引擎 ────────────────────────────────
+# ── V7 v7.5 評分引擎
 def run_v7(df, min_gates=5, min_score=88):
     passed=[]; backup=[]
     for _,row in df.iterrows():
@@ -2459,7 +2458,7 @@ def run_v7(df, min_gates=5, min_score=88):
 # ══════════════════════════════════════════════════════════════════
 
 
-# ── T1 v8.2 買點系統引擎 ────────────────────────────────────
+# ── T1 v8.2 買點引擎
 def run_t1(df, sid_filter=None, force_show=False):
     """
     T1 買點系統（方向B完整重寫版）
@@ -2731,7 +2730,7 @@ def run_t1(df, sid_filter=None, force_show=False):
 # ══════════════════════════════════════════════════════════════════
 
 
-# ── MAX HTML 工具函式 ────────────────────────────────────────
+# ── MAX HTML 工具
 def bdg(txt, cls):
     return '<span class="bdg ' + cls + '">' + str(txt) + '</span>'
 
@@ -2747,70 +2746,51 @@ def grade_cls(g):
 
 
 def generate_max_html(df, macro):
-    """
-    執行 MAX 三系統並回傳 HTML 字串。
-    df    : load_and_clean_csv() 回傳的 df2（含全部欄位）
-    macro : fetch_taiex() 回傳的 dict
-    """
-    import numpy as _np  # noqa (np already imported globally)
-    import pandas as _pd
-
-    # ── 從 macro dict 推導宏觀旗標
     tx_c  = macro.get("taiex_close")
     tx_m  = macro.get("taiex_ma20")
     above = macro.get("taiex_above_ma20", True)
     macro_ok = (above is True)
     if tx_c and tx_m:
-        macro_msg = (f"✅ 加權指數 {tx_c:,.0f} 點 > MA20 {tx_m:,.0f} 點"
-                     if macro_ok else
-                     f"⚠️ 大盤跌破月線 加權 {tx_c:,.0f} < MA20 {tx_m:,.0f}")
+        if macro_ok:
+            macro_msg = f"✅ 加權指數 {int(tx_c):,} 點 > MA20 {int(tx_m):,} 點"
+        else:
+            macro_msg = f"⚠️ 大盤跌破月線 加權 {int(tx_c):,} < MA20 {int(tx_m):,}"
     else:
         macro_msg = "⚪ 大盤資料未取得"
-
     fb = macro.get("foreign_b", 0) or 0
     if fb < -500:
-        v7_danger     = True
+        v7_danger = True
         v7_market_msg = f"🛑 外資大幅賣超 {abs(int(fb))} 億 → 今日極度危險，不建議做多"
     elif fb < -300:
-        v7_danger     = False
-        v7_market_msg = f"⚠️ 外資賣超 {abs(int(fb))} 億 → 單檔最多10%資金"
+        v7_danger = False
+        v7_market_msg = f"⚠️ 外資賣超 {abs(int(fb))} 億 → 單檔最夐10%資金"
     elif fb > 100:
-        v7_danger     = False
-        v7_market_msg = f"✅ 大盤外資買超 {int(fb)} 億 → 單檔最多20%資金"
+        v7_danger = False
+        v7_market_msg = f"✅ 大盤外資買超 {int(fb)} 億 → 单檔最夐20%資金"
     else:
-        v7_danger     = False
-        v7_market_msg = f"✅ 大盤外資 {int(fb)} 億 → 中性，單檔最多20%資金"
-
-    # ── 執行三系統評分
+        v7_danger = False
+        v7_market_msg = f"✅ 大盤外資 {int(fb)} 億 → 中性，单檔最夐20%資金"
     df_run = df.copy()
     print("  [MAX] 執行 P5/V7/T1 引擎...")
     p5_res            = run_p5(df_run)
     v7_pass, v7_bk    = run_v7(df_run, min_gates=5, min_score=88)
     t1_main, t1_fresh = run_t1(df_run)
-
-    p5_top3_sids = [r["sid"]  for r in p5_res[:3]]
-    v7_top3_sids = [r["代號"] for r in v7_pass[:3]]
-    t1_p5_top3, _ = run_t1(df_run, sid_filter=p5_top3_sids, force_show=True)
-    t1_v7_top3, _ = run_t1(df_run, sid_filter=v7_top3_sids, force_show=True)
-
+    p5_top3 = [r["sid"]  for r in p5_res[:3]]
+    v7_top3 = [r["代號"] for r in v7_pass[:3]]
+    t1_p5_top3, _ = run_t1(df_run, sid_filter=p5_top3, force_show=True)
+    t1_v7_top3, _ = run_t1(df_run, sid_filter=v7_top3, force_show=True)
     p5_sids = {r["sid"]  for r in p5_res[:8]}
     v7_sids = {r["代號"] for r in v7_pass[:8]}
     t1_sids = {r["代號"] for r in t1_main[:6]}
-
-    print(f"  [MAX] P5:{len(p5_res)} | V7正式:{len(v7_pass)} 備案:{len(v7_bk)}"
-          f" | T1:{len(t1_main)} 剛穿:{len(t1_fresh)}")
-
-    # ── cross_tag（閉包存取 p5/v7/t1 sids）
+    print(f"  [MAX] P5:{len(p5_res)} | V7正式:{len(v7_pass)} 備案:{len(v7_bk)} | T1:{len(t1_main)} 剛穿:{len(t1_fresh)}")
     def cross_tag(sid):
         tags = []
         if sid in p5_sids: tags.append("P")
         if sid in v7_sids: tags.append("V")
         if sid in t1_sids: tags.append("T")
         if not tags: return ""
-        return (' <span class="bdg bg-o" style="font-size:9px;">★'
-                + "+".join(tags) + '</span>')
-
-    # ── Render 函式（巢狀定義，閉包存取宏觀旗標）
+        return '<span class="bdg bg-o" style="font-size:9px;">★' + "+".join(tags) + '</span>'
+    # ---- render 函式 ----
     def render_mini_t1(t1_list, label=""):
         if not t1_list:
             return '<div style="font-size:10px;color:#999;padding:4px 8px;">（此3檔目前無T1買點資料）</div>'
@@ -3170,15 +3150,14 @@ def generate_max_html(df, macro):
     # ══════════════════════════════════════════════════════════════════
 
 
-    # ── 組裝 MAX HTML
+    # ---- 組裝 MAX HTML ----
     mc_c = "" if macro_ok else "color:#e74c3c;"
     p5_html_inner = render_p5(p5_res)
     v7_html_inner = render_v7(v7_pass, v7_bk)
     t1_html_inner = render_t1(t1_main, t1_fresh)
-
-    summary_cards = "".join(
-        f'<div class="scard" style="background:{c};">'  
-        f'<div class="n">{n}</div><div class="lb">{lb}</div></div>'
+    sc_row = "".join(
+        f'<div class="scard" style="background:{c};"><div class="n">{n}</div>'
+        f'<div class="lb">{lb}</div></div>'
         for c, n, lb in [
             ("#c0392b", len(p5_res),   "P5長線"),
             ("#2980b9", len(v7_pass),  "V7正式"),
@@ -3187,31 +3166,27 @@ def generate_max_html(df, macro):
             ("#922b21", len(t1_fresh), "🔥週線剛穿"),
         ]
     )
-
-    full = (
+    vd_style = "color:#c0392b;font-weight:bold;" if v7_danger else "color:#f39c12;"
+    return (
         CSS_MAX
-        + '<div id="max-wrap"><div class="rep">'
-        + '<div class="hdr">'
-        + '<h1>🏆 台股三系統選股報告（MAX）</h1>'
+        + '<div class="rep">'
+        + '<div class="hdr"><h1>🏆 台股三系統選股報告（MAX）</h1>'
         + '<div class="sub">P5長線 · V7 v7.5 強勢選股 · T1 v8.2 買點系統</div>'
         + f'<div class="mcr" style="{mc_c}">■ 宏觀：{macro_msg}</div>'
-        + f'<div class="mcr" style="{"color:#c0392b;font-weight:bold;" if v7_danger else "color:#f39c12;"}">'
-        + f'■ V7大盤：{v7_market_msg}</div>'
+        + f'<div class="mcr" style="{vd_style}">■ V7大盤：{v7_market_msg}</div>'
         + '</div>'
-        + f'<div class="sumrow">{summary_cards}</div>'
+        + f'<div class="sumrow">{sc_row}</div>'
         + '<div class="sec">📊 P5 長線合格清單</div>'
         + p5_html_inner
-        + '<div class="sec" style="color:#16213e;border-left-color:#16213e;margin-top:14px;">⚡ V7 v7.5 強勢選股（最多6檔）</div>'
+        + '<div class="sec" style="color:#16213e;border-left-color:#16213e;margin-top:14px;">⚡ V7 v7.5 強勢選股（最夐66檔）</div>'
         + v7_html_inner
         + '<div class="sec" style="color:#1b4332;border-left-color:#1b4332;margin-top:14px;">🎯 T1 v8.2 買點系統（超嚴格版）</div>'
         + t1_html_inner
         + '<div style="text-align:center;color:#aaa;font-size:9px;margin-top:12px;'
         + 'padding-top:6px;border-top:1px solid #ddd;">'
         + '台股三系統 v7 MAX ｜ 僅供參考，不構成投資建議</div>'
-        + '</div></div>'
+        + '</div>'
     )
-    return full
-
 
 
 # ── PART 2：HTML 報告
@@ -3596,7 +3571,6 @@ def generate_html(t1_top_final, L1_TOP20, L1_full_pool, S1_TOP12, S1_full_pool,
     if df_for_max is not None:
         try:
             max_section = generate_max_html(df_for_max, macro)
-            # Append MAX section inside <body> before </body></html>
             with open(html_fname, 'r', encoding='utf-8') as _fh:
                 _content = _fh.read()
             _content = _content.replace('</body></html>', max_section + '</body></html>')
@@ -3605,6 +3579,7 @@ def generate_html(t1_top_final, L1_TOP20, L1_full_pool, S1_TOP12, S1_full_pool,
             print(f'✅ MAX 三系統已接上 HTML')
         except Exception as _e:
             print(f'⚠️ MAX 三系統生成失敗（不影響 888 報告）：{_e}')
+            import traceback; traceback.print_exc()
     return html_fname
 
 
