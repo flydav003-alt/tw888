@@ -2638,6 +2638,46 @@ def grade_cls(g):
     return {"A+":"bg-g","A":"bg-b","A-":"bg-t","B+":"bg-o"}.get(g,"bg-gy")
 
 
+CSS_MAX_ADDON = """<style>
+/* ── MAX 專屬補充 CSS（配合 888 深色主題）── */
+/* face-row: P5 面向卡片列 */
+.face-row{display:flex;align-items:baseline;gap:6px;margin:4px 0;font-size:11px;padding:2px 0;}
+.face-lbl{font-weight:bold;min-width:60px;color:#8b949e;flex-shrink:0;}
+.face-sc{font-weight:bold;white-space:nowrap;min-width:46px;color:#f0f6fc;}
+.face-det{flex:1;color:#c9d1d9;line-height:1.6;}
+/* T1 cards */
+.t1card{border-radius:8px;padding:9px 12px;margin:5px 0;background:#161b22;border-left:4px solid #484f58;border:1px solid #30363d;}
+.t1card .hd{font-size:12px;font-weight:bold;margin-bottom:4px;color:#f0f6fc;}
+.t1card .bd{font-size:10px;color:#adbac7;line-height:1.7;}
+/* backup banner */
+.bkban{background:#bd5800;color:white;padding:7px 12px;border-radius:6px 6px 0 0;font-size:11px;font-weight:bold;margin-top:10px;}
+/* MA13 fresh banner */
+.ma13ban{background:linear-gradient(135deg,#6e40c9,#a371f7);color:white;padding:11px 15px;border-radius:9px;margin:10px 0 5px;}
+.ma13ban b{font-size:13px;}
+.ma13ban small{font-size:10px;opacity:.85;display:block;margin-top:3px;}
+/* mini table (cross-system) */
+.mini-tbl{margin:6px 0 10px;border-left:3px solid #f0883e;padding-left:8px;background:#161b22;border-radius:0 6px 6px 0;padding:6px 8px;}
+.mini-tbl .mini-title{font-size:11px;font-weight:bold;color:#f0883e;margin-bottom:4px;}
+/* V7 danger bar */
+.danger-bar{background:#da3633;color:white;font-weight:bold;font-size:13px;padding:10px 16px;border-radius:8px;margin:6px 0;border:2px solid #922b21;text-align:center;}
+/* wline badge */
+.wline-bdg{display:inline-block;background:#bd5800;color:white;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:bold;border:1px solid #f0883e;margin-left:2px;}
+/* MAX colour aliases → 888 dark palette */
+.c-g{color:#3fb950;font-weight:bold;}
+.c-b{color:#58a6ff;font-weight:bold;}
+.c-o{color:#f0883e;font-weight:bold;}
+.c-r{color:#f85149;font-weight:bold;}
+.bg-g{background:#238636;}
+.bg-b{background:#1f6feb;}
+.bg-o{background:#bd5800;}
+.bg-r{background:#da3633;}
+.bg-t{background:#1b7c83;}
+.bg-dk{background:#21262d;}
+.bg-gy{background:#484f58;}
+/* P5 card wrapper */
+.card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px 15px;margin:6px 0;}
+</style>"""
+
 def generate_max_html(df, macro):
     tx_c  = macro.get("taiex_close")
     tx_m  = macro.get("taiex_ma20")
@@ -3058,7 +3098,7 @@ def generate_max_html(df, macro):
     )
     vd_style = "color:#c0392b;font-weight:bold;" if v7_danger else "color:#f39c12;"
     return (
-        CSS
+        CSS + CSS_MAX_ADDON
         + '<div class="rep">'
         + '<div class="hdr"><div class="hdr-inner"><div class="hdr-icon">🏆</div>'
         + '<div class="hdr-text"><h1>台股三系統選股報告<span class="ver">MAX</span></h1>'
