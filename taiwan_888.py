@@ -2731,7 +2731,7 @@ def generate_max_html(df, macro):
                       for h,w in cols)
         rows=""
         for i,r in enumerate(t1_list):
-            bg = "#f8f9fa" if i%2==0 else "#fff"
+            bg = "#1c2333" if i%2==0 else "#161b22"
             gc = grade_cls(r["T1"])
             wc = ("c-r" if "剛穿" in str(r["週線MA13"])
                   else ("c-o" if "週線" in str(r["週線MA13"]) else ""))
@@ -2769,7 +2769,7 @@ def generate_max_html(df, macro):
 
         rows=""; sup_inserted=False
         for i,r in enumerate(res):
-            bg     = "#f8f9fa" if i%2==0 else "#fff"
+            bg     = "#1c2333" if i%2==0 else "#161b22"
             tot    = r["total"]; is_sup = r.get("_sup",False)
             tc     = ("c-g" if tot>=110 else "c-b" if tot>=90 else "c-o" if tot>=70 else "c-r")
             fp_n   = r["faces"]
@@ -2778,7 +2778,7 @@ def generate_max_html(df, macro):
             t1c    = grade_cls(r["t1g"]); op_s = r["op"]
 
             if is_sup and not sup_inserted:
-                rows+=('<tr><td colspan="15" style="background:#fff3cd;font-size:10px;'
+                rows+=('<tr><td colspan="15" style="background:#1f1d0f;font-size:10px;color:#f0f6fc;border-left:3px solid #f0883e;'
                        + 'padding:4px 8px;text-align:left;">ℹ️ 以下為重點追蹤股（總分未達'
                        + str(P5_PASS) + '分）</td></tr>')
                 sup_inserted=True
@@ -2806,7 +2806,7 @@ def generate_max_html(df, macro):
         sup_cnt = sum(1 for r in res if r.get("_sup"))
 
         tbl=('<div style="overflow-x:auto;">'
-             + '<div style="font-size:10px;color:#666;margin-bottom:3px;">'
+             + '<div style="font-size:10px;color:#8b949e;margin-bottom:3px;">'
              + '<span ' + mc_c + '>' + mc_s + '</span>'
              + '　依總分排序　' + wline_bdg() + '=週線MA13多頭</div>'
              + '<table class="tbl"><thead><tr>' + thead + '</tr></thead>'
@@ -2844,12 +2844,12 @@ def generate_max_html(df, macro):
                            + '</div>')
             cards+=('<div class="card">'
                    + '<div style="font-size:12px;font-weight:bold;margin-bottom:4px;'
-                   + 'border-bottom:1px solid #eee;padding-bottom:4px;">'
+                   + 'border-bottom:1px solid #30363d;padding-bottom:4px;">'
                    + r["sid"] + ' ' + r["name"]
                    + ' <span class="' + tc + '" style="font-size:14px;">' + str(tot) + '/130</span>'
                    + wma_b + '</div>'
                    # 入場止損一行
-                   + '<div style="font-size:10px;color:#555;margin-bottom:5px;">'
+                   + '<div style="font-size:10px;color:#adbac7;margin-bottom:5px;">'
                    + entry_info + '</div>'
                    + face_rows + '</div>')
 
@@ -2880,7 +2880,7 @@ def generate_max_html(df, macro):
         if passed:
             rows=""
             for i,r in enumerate(passed):
-                bg   = "#f8f9fa" if i%2==0 else "#fff"
+                bg   = "#1c2333" if i%2==0 else "#161b22"
                 mk   = r.get("標記","")
                 mk_c = "bg-r" if ("最高" in mk or "極強" in mk) else "bg-b"
                 tot  = r["總分"]
@@ -2923,11 +2923,11 @@ def generate_max_html(df, macro):
             # 核心理由行
             r_rows=""
             for i,r in enumerate(passed):
-                bg = "#f8f9fa" if i%2==0 else "#fff"
+                bg = "#1c2333" if i%2==0 else "#161b22"
                 r_rows+=('<tr style="background:' + bg + ';">'
                          + '<td style="width:44px;font-weight:bold;">' + r["代號"] + '</td>'
                          + '<td style="width:54px;">' + r["名稱"] + '</td>'
-                         + '<td style="text-align:left;font-size:10px;color:#333;white-space:normal;">' + r["核心理由"] + '</td>'
+                         + '<td style="text-align:left;font-size:10px;color:#c9d1d9;white-space:normal;">' + r["核心理由"] + '</td>'
                          + '<td style="width:200px;font-size:10px;color:#c0392b;white-space:normal;">' + r["失敗條件"] + '</td>'
                          + '</tr>')
             out+=('<div style="overflow-x:auto;margin-top:4px;">'
@@ -2947,7 +2947,7 @@ def generate_max_html(df, macro):
                        for h,w in bk_cols)
             br=""
             for r in backup:
-                br+=('<tr style="background:#fff8f0;">'
+                br+=('<tr style="background:#1e1810;">'
                      + ''.join('<td>' + str(r.get(col,"—")) + '</td>'
                                for col in ["代號","名稱","總分","通過關","催化","chip_sync",
                                            "量比","RSI","外資連買","族群","未通關"])
@@ -2958,10 +2958,10 @@ def generate_max_html(df, macro):
                   + '<tbody>' + br + '</tbody></table></div>')
             for r in backup:
                 out+=('<div style="font-size:10px;padding:3px 8px;'
-                      + 'border-left:3px solid #e67e22;margin:2px 0;background:#fff8f0;">'
+                      + 'border-left:3px solid #e67e22;margin:2px 0;background:#1e1810;">'
                       + '<b>' + r["代號"] + ' ' + r["名稱"] + '</b>｜' + r["核心理由"] + '</div>')
         elif not passed:
-            out+=('<div style="background:#fff3cd;padding:8px;'
+            out+=('<div style="background:#1f1d0f;padding:8px;color:#f0883e;border:1px solid #f0883e;border-radius:6px;'
                   + 'border-radius:6px;font-size:10px;margin-top:4px;">ℹ️ 今日無V7備案股票。</div>')
 
         out += render_mini_t1(t1_v7_top3, "V7短線")
@@ -2983,7 +2983,7 @@ def generate_max_html(df, macro):
         def make_rows(lst):
             h=""
             for i,r in enumerate(lst):
-                bg = "#f8f9fa" if i%2==0 else "#fff"
+                bg = "#1c2333" if i%2==0 else "#161b22"
                 gc = grade_cls(r["T1"])
                 wc = ("c-r" if "剛穿" in str(r["週線MA13"])
                       else ("c-o" if "週線" in str(r["週線MA13"]) else ""))
@@ -3024,13 +3024,13 @@ def generate_max_html(df, macro):
                         + '<div class="bd">' + r["結論"] + '</div></div>')
             out+='<div style="margin-top:5px;">' + cards + '</div>'
         else:
-            out+='<div style="padding:12px;background:#eee;border-radius:8px;font-size:11px;">T1 今日無A+~B+買點</div>'
+            out+='<div style="padding:12px;background:#21262d;border-radius:8px;font-size:11px;color:#c9d1d9;">T1 今日無A+~B+買點</div>'
 
         if fresh_l:
             def make_fresh_rows(lst):
                 h=""
                 for i,r in enumerate(lst):
-                    bg = "#f8f9fa" if i%2==0 else "#fff"
+                    bg = "#1c2333" if i%2==0 else "#161b22"
                     gc = grade_cls(r["T1"]); sid=r["代號"]; ctag=cross_tag(sid)
                     h+=('<tr style="background:' + bg + ';">'
                         + '<td><b>' + sid + '</b></td>'
@@ -3072,8 +3072,8 @@ def generate_max_html(df, macro):
                            + '<div class="bd">' + r["結論"] + '</div></div>')
             out+='<div style="margin-top:4px;">' + fr_cards + '</div>'
         else:
-            out+=('<div style="background:#f0f0f0;padding:6px 10px;border-radius:6px;'
-                  + 'margin-top:6px;font-size:10px;color:#777;">'
+            out+=('<div style="background:#21262d;padding:6px 10px;border-radius:6px;'
+                  + 'margin-top:6px;font-size:10px;color:#8b949e;">'
                   + 'ℹ️ 週線MA13剛穿（2日內）：今日無符合條件。</div>')
         return out
 
