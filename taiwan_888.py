@@ -1998,6 +1998,1222 @@ def fetch_z1_klines(z1_results):
 
 
 # ============================================================
+
+# ============================================================
+# ── PART 3：MAX 三系統（P5長線 · V7強勢 · T1買點）
+#    台股三系統資料庫 Max 最終版移植
+#    與 PART 1/2 共用同一 CSV 資料庫，df2 直接傳入即可
+# ============================================================
+
+CSS_MAX = """<style>
+
+#max-wrap * {box-sizing:border-box;}
+#max-wrap .rep {font-family:"Microsoft JhengHei","Noto Sans TC",Arial,sans-serif;
+     font-size:12px;background:#f0f2f5;padding:10px;}
+#max-wrap .hdr {background:linear-gradient(135deg,#1a1a2e,#0f3460);
+     color:white;padding:14px 18px;border-radius:10px;margin-bottom:8px;}
+#max-wrap .hdr h1 {margin:0;font-size:18px;}
+#max-wrap .hdr .sub {font-size:10px;color:#bbb;margin-top:3px;}
+#max-wrap .hdr .mcr {font-size:11px;margin-top:5px;}
+#max-wrap .danger-bar {background:#c0392b;color:white;font-weight:bold;font-size:13px;
+            padding:10px 16px;border-radius:8px;margin:6px 0;
+            border:2px solid #922b21;text-align:center;}
+#max-wrap .sumrow {display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;}
+#max-wrap .scard {flex:1;min-width:80px;padding:8px;border-radius:8px;
+       color:white;text-align:center;}
+#max-wrap .scard .n {font-size:22px;font-weight:bold;}
+#max-wrap .scard .lb {font-size:10px;opacity:.85;}
+#max-wrap .sec {font-size:13px;font-weight:bold;border-left:4px solid #1a1a2e;
+     padding-left:7px;margin:12px 0 4px;color:#1a1a2e;}
+#max-wrap .tbl {width:100%;border-collapse:collapse;background:white;
+     border-radius:8px;overflow:hidden;table-layout:fixed;
+     box-shadow:0 1px 6px rgba(0,0,0,.1);}
+#max-wrap .tbl th {background:#1a1a2e;color:#ffd700;font-size:10px;
+        padding:5px 3px;text-align:center;white-space:nowrap;}
+#max-wrap .tbl td {font-size:10px;padding:4px 3px;border-bottom:1px solid #f0f0f0;
+        text-align:center;overflow:hidden;white-space:nowrap;}
+#max-wrap .tbl tr:nth-child(even) td {background:#f8f9fa;}
+#max-wrap .mini-tbl {margin:6px 0 10px;border-left:3px solid #e67e22;padding-left:6px;}
+#max-wrap .mini-tbl .mini-title {font-size:11px;font-weight:bold;color:#e67e22;margin-bottom:3px;}
+#max-wrap .bdg {display:inline-block;padding:1px 5px;border-radius:5px;
+     font-size:10px;font-weight:bold;color:white;white-space:nowrap;}
+#max-wrap .wline-bdg {display:inline-block;background:#e67e22;color:white;
+           padding:1px 4px;border-radius:3px;font-size:9px;
+           font-weight:bold;border:1px solid #d35400;margin-left:2px;}
+#max-wrap .card {background:white;border-radius:8px;padding:10px 12px;
+      margin:4px 0;box-shadow:0 1px 4px rgba(0,0,0,.08);}
+#max-wrap .face-row {display:flex;align-items:baseline;gap:5px;margin:3px 0;font-size:11px;}
+#max-wrap .face-lbl {font-weight:bold;min-width:54px;color:#333;}
+#max-wrap .face-sc {font-weight:bold;white-space:nowrap;min-width:42px;}
+#max-wrap .face-det {flex:1;color:#555;line-height:1.5;}
+#max-wrap .t1card {border-radius:8px;padding:8px 11px;margin:4px 0;
+        background:white;border-left:4px solid #ccc;}
+#max-wrap .t1card .hd {font-size:11px;font-weight:bold;margin-bottom:3px;}
+#max-wrap .t1card .bd {font-size:10px;color:#444;line-height:1.6;}
+#max-wrap .bkban {background:#e67e22;color:white;padding:6px 10px;
+       border-radius:6px 6px 0 0;font-size:11px;font-weight:bold;}
+#max-wrap .ma13ban {background:linear-gradient(135deg,#922b21,#c0392b);
+         color:white;padding:10px 14px;border-radius:9px;margin:10px 0 4px;}
+#max-wrap .ma13ban b {font-size:13px;}
+#max-wrap .ma13ban small {font-size:10px;opacity:.8;display:block;margin-top:3px;}
+#max-wrap .c-g {color:#27ae60;font-weight:bold;} .c-b{color:#2980b9;font-weight:bold;}
+#max-wrap .c-o {color:#e67e22;font-weight:bold;} .c-r{color:#c0392b;font-weight:bold;}
+#max-wrap .bg-g {background:#27ae60;} .bg-b{background:#2980b9;}
+#max-wrap .bg-o {background:#e67e22;} .bg-r{background:#c0392b;}
+#max-wrap .bg-t {background:#16a085;} .bg-dk{background:#1a1a2e;} .bg-gy{background:#7f8c8d;}
+
+</style>"""
+
+
+# ── P5 評分引擎 ─────────────────────────────────────────────
+P5_PASS = 100
+
+def calc_p5(row):
+    close = float(row.get("close",0) or 0)
+    if close <= 0: return None
+    sid  = str(row.get("stock_id","")); name = str(row.get("name",""))
+
+    # 面向1 基本面 30分
+    s1=0; d1=[]
+    e3q   = bool(row.get("eps_3q_yoy_gt20", False))
+    qoq   = row.get("eps_q1_qoq", np.nan)
+    qoqf  = float(qoq) if not pd.isna(qoq) else None
+    ey1   = row.get("eps_q1_yoy", np.nan)
+    roei  = bool(row.get("roe_gt5_improving", False))
+    roev  = row.get("roe_latest", np.nan)
+    gmi   = str(row.get("gross_margin_improving",""))
+    gm1   = row.get("gross_margin_q1", np.nan)
+    mry   = row.get("monthly_rev_yoy", np.nan)
+    mrm   = row.get("monthly_rev_mom", np.nan)
+    if e3q and qoqf is not None and qoqf >= 5:
+        s1+=12; d1.append("EPS連3季YoY>20%+QoQ" + str(round(qoqf,0)) + "% +12")
+    elif e3q:
+        s1+=8;  d1.append("EPS連3季YoY>20% +8")
+    elif not pd.isna(ey1) and float(ey1) > 20:
+        s1+=4;  d1.append("EPS年增率" + str(round(float(ey1),0)) + "% +4")
+    elif not pd.isna(ey1) and float(ey1) > 0:
+        s1+=2;  d1.append("EPS年增率" + str(round(float(ey1),0)) + "%(弱) +2")
+    if roei:
+        s1+=10; d1.append("ROE" + (str(round(float(roev),1)) if not pd.isna(roev) else "") + "%>5%改善 +10")
+    elif not pd.isna(roev) and float(roev) > 5:
+        s1+=6;  d1.append("ROE" + str(round(float(roev),1)) + "%>5% +6")
+    if gmi == "True":
+        s1+=4;  d1.append("毛利率連3季改善(" + (str(round(float(gm1),1)) if not pd.isna(gm1) else "") + "%) +4")
+    elif not pd.isna(gm1) and float(gm1) > 30:
+        s1+=1;  d1.append("毛利率" + str(round(float(gm1),1)) + "% +1")
+    if not pd.isna(mry) and float(mry) > 15 and not pd.isna(mrm) and float(mrm) > 0:
+        s1+=4;  d1.append("月營收YoY" + str(round(float(mry),0)) + "%+MoM正 +4")
+    elif not pd.isna(mry) and float(mry) > 10:
+        s1+=2;  d1.append("月營收YoY" + str(round(float(mry),0)) + "% +2")
+    s1 = min(s1, 30); f1 = s1 >= 18
+
+    # 面向2 估值 20分（加入 forward_pe_proxy）
+    s2=0; d2=[]
+    pe  = row.get("pe",  np.nan)
+    peg = row.get("peg", np.nan)
+    dy  = row.get("dividend_yield", np.nan)
+    fpp = bool(row.get("forward_pe_proxy", False))
+    if not pd.isna(pe):
+        pf = float(pe)
+        if   pf < 15: s2+=8; d2.append("本益比" + str(round(pf,1)) + "<15 +8")
+        elif pf < 20: s2+=5; d2.append("本益比" + str(round(pf,1)) + "<20 +5")
+        elif pf < 25: s2+=3; d2.append("本益比" + str(round(pf,1)) + "<25 +3")
+        else:              d2.append("本益比" + str(round(pf,1)) + "偏高 +0")
+    else: d2.append("本益比無資料 +0")
+    if not pd.isna(peg):
+        pgf = float(peg)
+        if   pgf < 0.8: s2+=7; d2.append("PEG" + str(round(pgf,2)) + "<0.8 +7")
+        elif pgf < 1.2: s2+=7; d2.append("PEG" + str(round(pgf,2)) + "<1.2 +7")
+        elif pgf < 1.5: s2+=4; d2.append("PEG" + str(round(pgf,2)) + "<1.5 +4")
+    else: d2.append("PEG無資料 +0")
+    # Forward PE Proxy：EPS+Rev雙加速 且 PEG合理
+    if fpp:
+        s2+=5; d2.append("Forward PE上修(EPS+Rev加速+PEG<1.3) +5")
+    elif not pd.isna(peg) and float(peg) < 1.0 and e3q:
+        s2+=3; d2.append("Forward PE保守上修空間 +3")
+    s2 = min(s2, 20); f2 = s2 >= 12
+
+    # 面向3 財務健康 20分（加入 fcf_proxy）
+    s3=0; d3=[]
+    dr   = row.get("debt_ratio", np.nan)
+    oi1  = row.get("op_income_q1", np.nan)
+    oi2  = row.get("op_income_q2", np.nan)
+    oi3  = row.get("op_income_q3", np.nan)
+    dmf  = row.get("daily_money_flow", np.nan)
+    fcf_bool = bool(row.get("fcf_proxy", False))
+    # 原始op_income連3季正且成長
+    fcf_strict = (not pd.isna(oi1) and not pd.isna(oi2) and not pd.isna(oi3)
+                  and float(oi1)>0 and float(oi2)>0 and float(oi3)>0
+                  and float(oi1) > float(oi2))
+    if fcf_strict and fcf_bool:
+        s3+=8; d3.append("FCF連3季正且成長+現金流強健 +8")
+    elif fcf_strict:
+        s3+=8; d3.append("FCF連3季正向且成長 +8")
+    elif fcf_bool:
+        s3+=5; d3.append("FCF代理通過(EPS+Rev+負債) +5")
+    elif not pd.isna(oi1) and float(oi1) > 0:
+        s3+=3; d3.append("營業利益正向 +3")
+    if not pd.isna(dr):
+        df_ = float(dr)
+        if   df_ < 30: s3+=6; d3.append("負債比" + str(round(df_,0)) + "%極低 +6")
+        elif df_ < 50: s3+=6; d3.append("負債比" + str(round(df_,0)) + "%<50% +6")
+        elif df_ < 65: s3+=3; d3.append("負債比" + str(round(df_,0)) + "%偏高 +3")
+        else:               d3.append("負債比" + str(round(df_,0)) + "%高 +0")
+    if not pd.isna(dy) and float(dy) > 1.5: s3+=4; d3.append("殖利率" + str(round(float(dy),1)) + "% +4")
+    elif not pd.isna(dy) and float(dy) > 0.8: s3+=2; d3.append("殖利率" + str(round(float(dy),1)) + "% +2")
+    s3b = min(s3, 20)
+    if not pd.isna(dmf) and float(dmf) < 2.5:
+        s3b = min(s3b+2, 20); d3.append("資金流" + str(round(float(dmf),1)) + "%<2.5% +2")
+    s3 = s3b; f3 = s3 >= 12
+
+    # 面向4 籌碼 25分
+    s4=0; d4=[]
+    rnk  = int(row.get("foreign_rank_today",999) or 999)
+    tr   = str(row.get("foreign_3m_trend",""))
+    cd   = int(row.get("foreign_consecutive_days",0) or 0)
+    cs   = str(row.get("chip_sync","中性"))
+    tnt5 = int(row.get("trust_net_5d",0) or 0)
+    tnt  = int(row.get("trust_net_today",0) or 0)
+    if rnk<=15 and tr=="up":   s4+=10; d4.append("外資前" + str(rnk) + "名+3M上升 +10")
+    elif rnk<=30 and tr=="up": s4+=6;  d4.append("外資前" + str(rnk) + "名+趨勢上 +6")
+    elif rnk<=50 and tr=="up": s4+=3;  d4.append("外資前" + str(rnk) + "名 +3")
+    if cs == "雙買":    s4+=8; d4.append("雙買(外資+投信) +8")
+    elif "單買" in cs:  s4+=4; d4.append(cs + " +4")
+    if tnt5>0 and tnt>0:   s4+=7; d4.append("投信5日+今日皆買 +7")
+    elif tnt>0 or tnt5>0:  s4+=4; d4.append("投信近期買超 +4")
+    s4 = min(s4, 25); f4 = s4 >= 15
+
+    # 面向5 技術 20分
+    s5=0; d5=[]
+    bull  = bool(row.get("ma_bull_align",False))
+    rsi   = float(row.get("rsi14",100) or 100)
+    ab60  = bool(row.get("price_above_ma60",False))
+    vr    = float(row.get("volume_ratio",1) or 1)
+    rel20 = float(row.get("rel_strength_20d",0) or 0)
+    wmsig = bool(row.get("weekly_ma13_signal",False))
+    if bull:   s5+=8; d5.append("月/季/年線多頭 +8")
+    elif ab60: s5+=4; d5.append("站穩季線 +4")
+    if   rsi < 50: s5+=5; d5.append("RSI" + str(round(rsi,0)) + "<50 +5")
+    elif rsi < 65: s5+=3; d5.append("RSI" + str(round(rsi,0)) + "中性 +3")
+    elif rsi < 70: s5+=1; d5.append("RSI" + str(round(rsi,0)) + "偏高 +1")
+    if   vr > 1.15: s5+=4; d5.append("月均量放大" + str(round(vr,1)) + "x +4")
+    elif vr > 1.0:  s5+=2; d5.append("量比" + str(round(vr,1)) + "x +2")
+    if   rel20 > 2: s5+=4; d5.append("相對大盤強+" + str(round(rel20,1)) + "% +4")
+    elif rel20 > 0: s5+=3; d5.append("相對大盤略強 +3")
+    if wmsig: s5+=2; d5.append("週線MA13多頭 +2")
+    s5 = min(s5, 20); f5 = s5 >= 12
+
+    # 面向6 風險 15分
+    s6=0; d6=[]
+    beta  = row.get("beta_1y", np.nan)
+    mdd3  = row.get("max_drawdown_3y", np.nan)
+    pfl   = row.get("pct_from_52w_low", np.nan)
+    nsco  = int(row.get("news_score",0) or 0)
+    if not pd.isna(pfl) and float(pfl) > 30:
+        s6+=3; d6.append("距52低" + str(round(float(pfl),0)) + "%>30% +3")
+    if not pd.isna(beta):
+        bf = float(beta)
+        if   bf < 0.8: s6+=6; d6.append("Beta" + str(round(bf,2)) + "低波動 +6")
+        elif bf < 1.2: s6+=4; d6.append("Beta" + str(round(bf,2)) + "<1.2 +4")
+        else:               d6.append("Beta" + str(round(bf,2)) + "高 +0")
+    if not pd.isna(mdd3):
+        mf = float(mdd3)
+        if   mf > -15: s6+=5; d6.append("回撤" + str(round(mf,0)) + "%極低 +5")
+        elif mf > -25: s6+=5; d6.append("回撤" + str(round(mf,0)) + "%可控 +5")
+        elif mf > -35: s6+=2; d6.append("回撤" + str(round(mf,0)) + "%偏大 +2")
+    s6+=2; d6.append("產業分散 +2")
+    s6b = min(s6, 15)
+    if nsco >= 2: s6b = min(s6b+2, 15); d6.append("news_score=" + str(nsco) + " +2")
+    s6 = s6b; f6 = s6 >= 9
+
+    total = s1+s2+s3+s4+s5+s6
+    faces = sum([f1,f2,f3,f4,f5,f6])
+
+    ma20v = row.get("ma20", np.nan); ma60v = row.get("ma60", np.nan)
+    if not pd.isna(ma20v):
+        mv = float(ma20v); pct = (close/mv-1)*100 if mv > 0 else 0
+        entry = (("等回月線" + str(round(mv,0))) if pct > 10
+                 else (str(round(mv*0.99,0)) + "~" + str(round(mv*1.03,0))) if pct > 3
+                 else (str(round(close*0.99,0)) + "~" + str(round(close*1.01,0))))
+    else:
+        entry = str(round(close*0.99,0)) + "~" + str(round(close*1.01,0))
+
+    sl1  = (str(round(float(ma20v),0)) if not pd.isna(ma20v) and float(ma20v)<close*0.999 else "月線≈現價")
+    sl2  = (str(round(float(ma60v),0)) if not pd.isna(ma60v) and float(ma60v)<close*0.999 else "—")
+    tgt  = str(round(close*1.15,0)) + "~" + str(round(close*1.30,0))
+    op   = "核心持股" if total >= 110 else ("重點追蹤" if total >= 95 else "穩健型")
+    pct20= float(row.get("price_vs_ma20_pct",0) or 0)
+    t1g  = str(row.get("t1_grade","—"))
+    wfp  = bool(row.get("fresh_priority",False))
+
+    ey1_s  = (str(round(float(ey1),0)) + "%" if not pd.isna(ey1) else "—")
+    roe_s  = (str(round(float(roev),1)) + "%" if not pd.isna(roev) else "—")
+    pe_s   = (str(round(float(pe),1))   if not pd.isna(pe)  else "—")
+    peg_s  = (str(round(float(peg),2))  if not pd.isna(peg) else "—")
+    dr_s   = (str(round(float(dr),0)) + "%" if not pd.isna(dr) else "—")
+    nsco_s = str(nsco)
+
+    return {"sid":sid,"name":name,"close":close,"total":total,"faces":faces,
+            "fp":[f1,f2,f3,f4,f5,f6],
+            "s1":s1,"s2":s2,"s3":s3,"s4":s4,"s5":s5,"s6":s6,
+            "d1":d1,"d2":d2,"d3":d3,"d4":d4,"d5":d5,"d6":d6,
+            "ey1_s":ey1_s,"roe_s":roe_s,"pe_s":pe_s,"peg_s":peg_s,"dr_s":dr_s,
+            "entry":entry,"sl1":sl1,"sl2":sl2,"tgt":tgt,"op":op,
+            "t1g":t1g,"pct20":pct20,"wfp":wfp,"wmsig":bool(row.get("weekly_ma13_signal",False)),
+            "rsi":rsi,"cs":cs,"nsco":nsco_s,"dmf":row.get("daily_money_flow",np.nan)}
+
+def run_p5(df):
+    res = []
+    for _,row in df.iterrows():
+        if float(row.get("close",0) or 0) <= 0: continue
+        r = calc_p5(row)
+        if r is None: continue
+        if r["total"] >= P5_PASS or r["faces"] >= 5: res.append(r)
+    if len(res) < 8:
+        existing = {r["sid"] for r in res}
+        extra = []
+        for _,row in df.iterrows():
+            if str(row.get("stock_id","")) in existing: continue
+            if float(row.get("close",0) or 0) <= 0: continue
+            r = calc_p5(row)
+            if r and r["total"] >= 60: extra.append(r)
+        extra.sort(key=lambda x: -x["total"])
+        for r in extra:
+            if len(res) >= 8: break
+            r["_sup"] = True; res.append(r)
+    res.sort(key=lambda x: -x["total"])
+    return res[:12]
+
+
+# ══════════════════════════════════════════════════════════════════
+
+
+# ── V7 v7.5 超嚴格版評分引擎 ────────────────────────────────
+def run_v7(df, min_gates=5, min_score=88):
+    passed=[]; backup=[]
+    for _,row in df.iterrows():
+        sid   = str(row["stock_id"]); name = str(row.get("name",sid))
+        close = float(row.get("close",0) or 0)
+        if close <= 0: continue
+
+        r5   = float(row.get("return_5d",  0) or 0)
+        r1y  = float(row.get("return_1y",  0) or 0)
+        cd   = int(row.get("foreign_consecutive_days",0) or 0)
+        vr   = float(row.get("volume_ratio",0) or 0)
+        rsi  = float(row.get("rsi14",50)  or 50)
+        rnk  = int(row.get("foreign_rank_today",999) or 999)
+        cs   = str(row.get("chip_sync","中性"))
+        nsco = int(row.get("news_score",0) or 0)
+        mry  = row.get("monthly_rev_yoy", np.nan)
+        qoq  = row.get("eps_q1_qoq", np.nan)
+        dmf  = row.get("daily_money_flow", np.nan)
+        pct20= float(row.get("price_vs_ma20_pct",0) or 0)
+        ma20v= float(row.get("ma20",close*0.95) or close*0.95)
+        rel20= float(row.get("rel_strength_20d",0) or 0)
+        fntv = float(row.get("fntv",0) or 0)
+        shrink= bool(row.get("volume_shrink",False))
+        wmsig= bool(row.get("weekly_ma13_signal",False))
+        fresh= bool(row.get("fresh_priority",False))
+        cn   = str(row.get("cross_note",""))
+        t1g  = str(row.get("t1_grade","C"))
+        sec_m= bool(row.get("sector_momentum",False))
+
+        mryf  = float(mry) if not pd.isna(mry) else None
+        qoqf  = float(qoq) if not pd.isna(qoq) else None
+        rev_tank = mryf is not None and mryf < -10   # 月營收大幅負成長
+
+        # ── G1 漲幅過濾 12分 ──────────────────────────────────────
+        if r5 < 15 and r1y < 250:
+            g1s=12; g1ok=True
+        elif 5 <= r5 <= 15 and r1y < 250 and (cs=="雙買" or nsco>=2 or rnk<=15):
+            g1s=10; g1ok=True   # 有強催化劑可例外
+        else:
+            g1s=0;  g1ok=False
+
+        # ── G2 催化劑 30分（最重要）─────────────────────────────────
+        strong_cond = (cs=="雙買"
+                       and (mryf is not None and mryf > 10
+                            or qoqf  is not None and qoqf  > 10
+                            or nsco >= 2)
+                       and not rev_tank)
+        mid_cond = (cs=="雙買"   # 雙買但條件不足 or 月營收差
+                    or "單買" in cs
+                    or (mryf is not None and mryf > 0)
+                    or nsco == 1)
+        weak_cond = (cd >= 3 or rnk <= 30
+                     or (qoqf is not None and qoqf > 0))
+
+        if strong_cond:
+            g2s=30; g2ok=True; cat="強"
+        elif mid_cond or (cs=="雙買" and rev_tank):
+            g2s=22; g2ok=True
+            cat = "中(Rev↓)" if (cs=="雙買" and rev_tank) else "中"
+        elif weak_cond:
+            g2s=15; g2ok=True; cat="弱"
+        else:
+            g2s=0;  g2ok=False; cat="無"
+
+        # ── G3 籌碼時效 25分 ─────────────────────────────────────
+        # vr>=1.3 (或1.2~1.3+rsi<65)；排除 vr>3 黑K暴量
+        vr_ok  = vr >= 1.3 or (1.2 <= vr < 1.3 and rsi < 65)
+        blk_k  = vr > 3.0 and r5 > 8
+        if vr_ok and not blk_k:
+            g3_base = 20
+            g3_bonus= 5 if (not pd.isna(dmf) and float(dmf) < 2.5) else 0
+            g3s = min(g3_base + g3_bonus, 25); g3ok = True
+        else:
+            g3s=0; g3ok=False
+
+        # ── G4 波段位置 15分 ─────────────────────────────────────
+        pos_ok  = pct20 <= 12
+        rel_ok  = rel20 > 0.5
+        if pos_ok and rel_ok:
+            g4s=15; g4ok=True
+        elif pos_ok:
+            g4s=12; g4ok=True
+        elif pct20 <= 15 and rnk <= 10:
+            g4s=7;  g4ok=True
+        else:
+            g4s=0;  g4ok=False
+
+        # ── G5 停損紀律 / 盈虧比 10分 ────────────────────────────
+        sl   = min(ma20v*0.97, close*0.95)
+        rr   = (close*1.08 - close)/(close - sl) if close > sl else 0
+        if   rr >= 1.5: g5s=10; g5ok=True
+        elif rr >= 1.2: g5s=5;  g5ok=True
+        else:           g5s=0;  g5ok=False
+
+        # ── G6 族群領漲 13分（+3 雙買 bonus，上限16）─────────────
+        grp_ok = sec_m or rnk <= 20
+        if grp_ok:
+            g6s = 13 + (3 if cs=="雙買" else 0); g6ok=True
+        else:
+            g6s=0; g6ok=False
+
+        tot   = min(g1s+g2s+g3s+g4s+g5s+g6s, 100)
+        gates = [g1ok,g2ok,g3ok,g4ok,g5ok,g6ok]
+        ng    = sum(gates)
+        fail_lbs = [["漲幅","催化","籌碼","位置","盈虧","族群"][i]
+                    for i,ok in enumerate(gates) if not ok]
+
+        reasons = []
+        if rnk<=10:       reasons.append("外資買超#" + str(rnk) + "名主力積極進場")
+        elif rnk<=20:     reasons.append("外資排名#" + str(rnk))
+        if cs=="雙買":    reasons.append("外資+投信雙買(籌碼同向)")
+        elif "單買" in cs:reasons.append("籌碼:" + cs)
+        if cd>=5:         reasons.append("外資連買" + str(cd) + "天籌碼持續累積")
+        elif cd>=3:       reasons.append("外資連買" + str(cd) + "天")
+        if vr>=2.0:       reasons.append("量比" + str(round(vr,1)) + "x市場關注度高")
+        elif vr>=1.5:     reasons.append("量比" + str(round(vr,1)) + "x")
+        if nsco>=2:       reasons.append("news_score=" + str(nsco) + "(重大事件)")
+        if fresh:         reasons.append("🔥週線MA13剛穿(" + cn + ")趨勢啟動")
+        elif wmsig:       reasons.append("週線MA13多頭")
+        if rel20>3:       reasons.append("相對大盤強+" + str(round(rel20,1)) + "%")
+        if sec_m:         reasons.append("族群有領漲股(G6確認)")
+        if rev_tank:      reasons.append("⚠️月營收YoY" + str(round(mryf,0)) + "%拖累催化")
+
+        fterm    = fntv/10000*0.20 if fntv > 0 else 0
+        momentum = round(r5*0.30 + vr*10*0.25 + (100-rsi)*0.25 + fterm, 1)
+
+        if   tot >= 93: tier = "🔥極強"
+        elif tot >= 86: tier = "✅強勢"
+        elif tot >= 78: tier = "⚠️備案"
+        else:           tier = "—"
+
+        tgt1 = round(close*1.08,0); tgt2 = round(close*1.15,0)
+        rec = {
+            "代號":sid,"名稱":name,"收盤":str(round(close,0)),
+            "總分":tot,"分級":tier,
+            "G1":g1s,"G2":g2s,"G3":g3s,"G4":g4s,"G5":g5s,"G6":g6s,
+            "通過關":str(ng)+"/6","催化":cat,
+            "動能分":str(round(momentum,0)),
+            "外資排名":"#" + str(rnk),"外資連買":str(cd) + "天",
+            "chip_sync":cs,"量比":str(round(vr,2)) + "x","RSI":str(round(rsi,0)),
+            "週線MA13":("🔥剛穿" if fresh else ("多頭" if wmsig else "—")),
+            "族群":("✅" if sec_m else "—"),
+            "進場":str(round(close*0.997,0)) + "~" + str(round(close*1.003,0)),
+            "止損":str(round(sl,0)),
+            "目標一":str(tgt1),"目標二":str(tgt2),
+            "盈虧比":str(round(rr,1)) + ":1",
+            "核心理由":"｜".join(reasons) if reasons else "綜合條件",
+            "失敗條件":"跌破MA20(" + str(round(ma20v,0)) + ")或14天未達目標",
+            "未通關":"/".join(fail_lbs) if fail_lbs else "—",
+            "_tot":tot,"_fresh":fresh,
+        }
+
+        # v7.5 超嚴格：G2強 or G6通過 至少其一才可正式
+        core_ok = (cat == "強") or g6ok
+        if tot >= min_score and ng >= min_gates and core_ok:
+            rec["標記"] = ("🔥最高" if fresh
+                           else ("🔥極強" if tot >= 95 else "✅正式"))
+            passed.append(rec)
+        elif 80 <= tot < min_score and ng >= min_gates and t1g == "A+":
+            rec["標記"] = "【備案】"; backup.append(rec)
+
+    def vsort(r): return (0 if r["_fresh"] else 1, -r["_tot"])
+    passed.sort(key=vsort); backup.sort(key=lambda r: -r["_tot"])
+    for r in passed+backup: r.pop("_tot",None); r.pop("_fresh",None)
+    return passed[:8], backup[:3]
+
+
+# ══════════════════════════════════════════════════════════════════
+
+
+# ── T1 v8.2 買點系統引擎 ────────────────────────────────────
+def run_t1(df, sid_filter=None, force_show=False):
+    """
+    T1 買點系統（方向B完整重寫版）
+    ─────────────────────────────────────────────────────────
+    升降級原則（乾淨、無循環漏洞）：
+    · 降級優先於升級：先把所有降級跑完，再跑升級
+    · 升 A+ 需要多重條件齊備，news或剛穿單獨不足以到 A+
+    · 最終過濾：A+ 必須 RSI<55 + chip 不賣超
+    · 每天預期 A+：0~4 檔，A：2~8 檔
+    """
+    res = []
+    for _,row in df.iterrows():
+        sid  = str(row["stock_id"])
+        if sid_filter is not None and sid not in sid_filter: continue
+        t1g  = str(row.get("t1_grade","C"))
+        if not force_show and t1g not in ["A+","A","A-","B+"]: continue
+        name  = str(row.get("name",sid))
+        close = float(row.get("close",0) or 0)
+        if close <= 0: continue
+
+        # ── 取得所有欄位 ─────────────────────────────────────
+        rsi    = float(row.get("rsi14",50)  or 50)
+        vr     = float(row.get("volume_ratio",1) or 1)
+        shrink = bool(row.get("volume_shrink",False))
+        stop_k = bool(row.get("stop_fall_k",False))
+        m5m10  = bool(row.get("ma5_gt_ma10",False))
+        npbl   = bool(row.get("not_break_prev_low",True))
+        bull   = bool(row.get("ma_bull_align",False))
+        ab20   = bool(row.get("price_above_ma20",False))
+        ma20v  = float(row.get("ma20",close*0.95) or close*0.95)
+        pct20  = float(row.get("price_vs_ma20_pct",0) or 0)
+        rel20  = float(row.get("rel_strength_20d",0) or 0)
+        cd     = int(row.get("foreign_consecutive_days",0) or 0)
+        rnk    = int(row.get("foreign_rank_today",999) or 999)
+        cs     = str(row.get("chip_sync","中性"))
+        nsco   = int(row.get("news_score",0) or 0)
+        dmf    = row.get("daily_money_flow", np.nan)
+        pfl    = row.get("pct_from_52w_low", np.nan)
+        pe     = row.get("pe", np.nan)
+        wmsig  = bool(row.get("weekly_ma13_signal",False))
+        fresh  = bool(row.get("fresh_priority",False))
+        cn     = str(row.get("cross_note",""))
+        kd_k      = float(row.get("kd_k", 50) or 50)
+        kd_d      = float(row.get("kd_d", 50) or 50)
+        kd_golden = bool(row.get("kd_golden_cross", False))
+        kd_death  = bool(row.get("kd_death_cross",  False))
+        kd_low    = bool(row.get("kd_oversold",     False))
+        kd_high   = bool(row.get("kd_overbought",   False))
+        chip_sell = cs in ("雙賣","單賣")
+
+        orig = t1g
+
+        # ══ Phase 1：硬降級（無條件，先跑完）══════════════════
+        if t1g in ["A+","A","A-","B+"]:
+
+            # D1：RSI 過熱硬降
+            #   RSI > 65 → 降一級（初始分級已排掉 >68，這裡補 62~65 的灰色地帶）
+            #   RSI > 62 且非月線回踩 → 降一級
+            if rsi > 65:
+                t1g = {"A+":"A","A":"A-","A-":"B+","B+":"B"}.get(t1g, t1g)
+            elif rsi > 62 and pct20 > 3:
+                t1g = {"A+":"A","A":"A-","A-":"B+"}.get(t1g, t1g)
+
+            # D2：KD 超買降級
+            #   K > 75 → 降一級（不管有沒有死叉）
+            if kd_k > 75:
+                t1g = {"A+":"A","A":"A-","A-":"B+","B+":"B"}.get(t1g, t1g)
+
+            # D3：籌碼賣超降級（外資+投信同步賣 → 直接降兩級）
+            if chip_sell and cd <= -3:
+                t1g = {"A+":"B+","A":"B","A-":"B-","B+":"C"}.get(t1g, t1g)
+            elif chip_sell:
+                t1g = {"A+":"A","A":"A-","A-":"B+","B+":"B"}.get(t1g, t1g)
+
+            # D4：RSI 高檔背離（RSI > 58 + 相對大盤弱 > -1.5%）→ 降兩級
+            if rsi > 58 and rel20 < -1.5:
+                t1g = {"A+":"B+","A":"B+","A-":"B","B+":"B-"}.get(t1g, t1g)
+
+            # D5：KD 死叉（高檔死叉：D > 65 且死叉）→ 降一級
+            if kd_death and kd_d > 65:
+                t1g = {"A+":"A","A":"A-","A-":"B+","B+":"B"}.get(t1g, t1g)
+
+            # D6：過度追高（月線% > 7% 且 無週線MA13 且 量比 > 1.5）→ 降一級
+            if pct20 > 7 and not wmsig and vr > 1.5:
+                t1g = {"A+":"A","A":"A-","A-":"B+"}.get(t1g, t1g)
+
+        # ══ Phase 2：升級（降級跑完後才升，且設硬上限）══════════
+        # 升級前先記錄 Phase1 後的等級
+        after_down = t1g
+
+        if t1g in ["A+","A","A-","B+"]:
+
+            # U1：KD 低檔金叉（K<30 穿越 D）→ 升一級（最高 A）
+            #     注意：KD金叉單獨只能到 A，要到 A+ 需要更多條件
+            if kd_golden and kd_low and t1g in ["A-","B+"]:
+                t1g = {"A-":"A","B+":"A-"}.get(t1g, t1g)
+
+            # U2：RSI 超低 + KD 金叉 → 升一級（最高 A）
+            if rsi < 38 and kd_golden and t1g in ["A-","B+"]:
+                t1g = {"A-":"A","B+":"A-"}.get(t1g, t1g)
+
+            # U3：週線MA13剛穿 → 升一級（最高 A+，但需 RSI<58 + chip不賣）
+            if fresh and not chip_sell and rsi < 58 and t1g in ["A","A-","B+"]:
+                t1g = {"A":"A+","A-":"A","B+":"A-"}.get(t1g, t1g)
+
+            # U4：news >= 3 + chip雙買 → 升一級（最高 A，新聞單獨不足升A+）
+            if nsco >= 3 and cs == "雙買" and rsi < 60 and t1g in ["A-","B+"]:
+                t1g = {"A-":"A","B+":"A-"}.get(t1g, t1g)
+
+        # ══ Phase 3：A+ 最終關卡（升降後的 A+ 都要過這關）══════
+        if t1g == "A+":
+            # A+ 必備條件：RSI < 55 + chip 不賣超 + 月線未嚴重偏離
+            if rsi >= 55 or chip_sell or pct20 > 5:
+                t1g = "A"
+            # A+ 加分確認：月線回踩帶 -3%~+2% + 量縮 + (止跌K 或 KD金叉)
+            elif not (-3 <= pct20 <= 2 and shrink and (stop_k or kd_golden)):
+                # 條件不夠漂亮 → 維持 A（不強制降，但不讓它留在 A+）
+                t1g = "A"
+
+        # 計算分級變化說明
+        grade_chg = ""
+        if t1g != orig:
+            grade_chg = " (" + orig + "→" + t1g + ")"
+
+        # ══ 主名單篩選 ══════════════════════════════════════════
+        # force_show 模式：全部顯示
+        # 一般模式：只取 A+/A（B+以下排除）
+        if not force_show and sid_filter is None:
+            if t1g not in ["A+","A"]: continue
+
+        # 最低 V7 技術項目數量要求（A+/A 需 ≥ 4 項，A- 需 ≥ 3 項）
+        v7_items = [
+            ("MA5>MA10",  m5m10),
+            ("量縮整理",  shrink),
+            ("止跌K",     stop_k),
+            ("RSI低檔",   rsi < 55),
+            ("未破前低",  npbl and ab20),
+            ("月線多頭",  bull),
+            ("相對強勢",  rel20 > 0.5),
+            ("chip雙買",  cs == "雙買"),
+            ("KD低檔",    kd_low or kd_golden),
+            ("KD未超買",  not kd_high),
+        ]
+        v7_pass_items = [lb for lb, ok in v7_items if ok]
+        v7_cnt = len(v7_pass_items)
+        v7_eff = v7_cnt + (1 if wmsig else 0) + (1 if fresh else 0)
+
+        if not force_show and sid_filter is None:
+            min_v7 = 4 if t1g == "A+" else 3
+            if v7_eff < min_v7: continue
+
+        # ══ 計算綜合評分（排序用）══════════════════════════════
+        grade_pts = {"A+":120, "A":85, "A-":55, "B+":30}.get(t1g, 10)
+        t1_score  = (grade_pts
+                     + v7_cnt * 4
+                     + (20 if fresh else 0)
+                     + (12 if wmsig else 0)
+                     + nsco * 5
+                     + (8 if cs == "雙買" else 0)
+                     + (6 if kd_golden else 0)
+                     + (5 if rsi < 45 else 0))
+
+        # ══ 計算進場/止損/目標 ══════════════════════════════════
+        # 進場帶：月線附近 ±1%；止損：月線 -3%；目標：+10%/+18%
+        elo  = round(ma20v * 0.99, 0)
+        ehi  = round(ma20v * 1.015, 0)
+        sl   = round(ma20v * 0.97, 0)
+        tgt1 = round(close * 1.10, 0)
+        tgt2 = round(close * (1.22 if fresh else 1.18), 0)
+
+        # ══ 結論文字 ════════════════════════════════════════════
+        parts = []
+        grade_label = {
+            "A+": "T1極佳",
+            "A" : "T1良好",
+            "A-": "T1觀察",
+            "B+": "T1偏強",
+        }.get(t1g, "T1")
+
+        parts.append(grade_label + "：月線" + str(round(pct20,1)) + "%，V7" + str(v7_cnt) + "/10" + grade_chg + "。")
+
+        # 技術說明
+        if v7_pass_items:
+            parts.append("技術：" + "/".join(v7_pass_items[:4]) + "。")
+
+        # RSI + KD
+        rsi_str = "RSI" + str(round(rsi,1))
+        kd_str  = "KD" + str(round(kd_k,0))
+        kd_note = ("低檔金叉🟢" if kd_golden and kd_low
+                   else "超買❌" if kd_high
+                   else "死叉⚠️" if kd_death
+                   else "中性")
+        parts.append(rsi_str + " " + kd_str + "(" + kd_note + ")。")
+
+        # 外資籌碼
+        if cd >= 5:
+            parts.append("外資連買" + str(cd) + "天(#" + str(rnk) + ")強力布局。")
+        elif cd >= 3:
+            parts.append("外資連買" + str(cd) + "天(#" + str(rnk) + ")。")
+        if cs == "雙買":
+            parts.append("外資+投信雙買。")
+
+        # news
+        if nsco >= 2:
+            parts.append("news=" + str(nsco) + "(重大催化)。")
+        elif nsco == 1:
+            parts.append("news=" + str(nsco) + "(一般)。")
+
+        # 週線MA13
+        if fresh:
+            parts.append("🔥MA13剛穿(" + cn + ")，趨勢剛啟動。")
+        elif wmsig:
+            parts.append("⭐週線MA13多頭。")
+
+        # 估值
+        if not pd.isna(pe) and float(pe) < 20:
+            parts.append("本益比" + str(round(float(pe),1)) + "合理。")
+
+        # 進場建議
+        if t1g == "A+":
+            parts.append("🎯 建議" + str(int(elo)) + "~" + str(int(ehi)) + "分批進場，止損" + str(int(sl)) + "，目標" + str(int(tgt1)) + "/" + str(int(tgt2)) + "。")
+        elif t1g == "A":
+            parts.append("建議" + str(int(elo)) + "~" + str(int(ehi)) + "小量進場，止損" + str(int(sl)) + "。")
+        else:
+            parts.append("觀察為主，暫不進場。")
+
+        wlbl = ("🔥2日剛穿" if fresh else ("⭐週線多頭" if wmsig else "—"))
+        res.append({
+            "代號":     sid,
+            "名稱":     name,
+            "T1":       t1g,
+            "收盤":     str(round(close, 0)),
+            "月線%":    str(round(pct20, 1)) + "%",
+            "RSI":      str(round(rsi, 1)),
+            "量比":     str(round(vr, 2)) + "x",
+            "V7通過":   str(v7_cnt) + "/10(" + "+".join(v7_pass_items[:3]) + ")",
+            "chip":     cs,
+            "news":     nsco,
+            "外資連買": str(cd) + "天",
+            "週線MA13": wlbl,
+            "進場區間": str(int(elo)) + "~" + str(int(ehi)),
+            "止損":     str(int(sl)),
+            "目標一":   str(int(tgt1)),
+            "目標二":   str(int(tgt2)),
+            "結論":     " ".join(parts),
+            "_score":   t1_score,
+            "_fresh":   fresh,
+        })
+
+    # 排序
+    res.sort(key=lambda r: -r["_score"])
+
+    if force_show and sid_filter:
+        sid_map = {r["代號"]: r for r in res}
+        main = [sid_map[s] for s in sid_filter if s in sid_map]
+        fresh_l = []
+    elif sid_filter:
+        main = res[:len(sid_filter)]; fresh_l = []
+    else:
+        main    = [r for r in res if not r["_fresh"]][:6]
+        fresh_l = [r for r in res if     r["_fresh"]][:5]
+
+    for r in res:
+        r.pop("_score", None)
+        r.pop("_fresh", None)
+    return main, fresh_l
+
+
+# ══════════════════════════════════════════════════════════════════
+
+
+# ── MAX HTML 工具函式 ────────────────────────────────────────
+def bdg(txt, cls):
+    return '<span class="bdg ' + cls + '">' + str(txt) + '</span>'
+
+def wline_bdg():
+    return '<span class="wline-bdg">週線</span>'
+
+def sc_cls(s, mx):
+    p = s/mx if mx > 0 else 0
+    return "c-g" if p>=0.75 else ("c-b" if p>=0.55 else ("c-o" if p>=0.35 else "c-r"))
+
+def grade_cls(g):
+    return {"A+":"bg-g","A":"bg-b","A-":"bg-t","B+":"bg-o"}.get(g,"bg-gy")
+
+
+def generate_max_html(df, macro):
+    """
+    執行 MAX 三系統並回傳 HTML 字串。
+    df    : load_and_clean_csv() 回傳的 df2（含全部欄位）
+    macro : fetch_taiex() 回傳的 dict
+    """
+    import numpy as _np  # noqa (np already imported globally)
+    import pandas as _pd
+
+    # ── 從 macro dict 推導宏觀旗標
+    tx_c  = macro.get("taiex_close")
+    tx_m  = macro.get("taiex_ma20")
+    above = macro.get("taiex_above_ma20", True)
+    macro_ok = (above is True)
+    if tx_c and tx_m:
+        macro_msg = (f"✅ 加權指數 {tx_c:,.0f} 點 > MA20 {tx_m:,.0f} 點"
+                     if macro_ok else
+                     f"⚠️ 大盤跌破月線 加權 {tx_c:,.0f} < MA20 {tx_m:,.0f}")
+    else:
+        macro_msg = "⚪ 大盤資料未取得"
+
+    fb = macro.get("foreign_b", 0) or 0
+    if fb < -500:
+        v7_danger     = True
+        v7_market_msg = f"🛑 外資大幅賣超 {abs(int(fb))} 億 → 今日極度危險，不建議做多"
+    elif fb < -300:
+        v7_danger     = False
+        v7_market_msg = f"⚠️ 外資賣超 {abs(int(fb))} 億 → 單檔最多10%資金"
+    elif fb > 100:
+        v7_danger     = False
+        v7_market_msg = f"✅ 大盤外資買超 {int(fb)} 億 → 單檔最多20%資金"
+    else:
+        v7_danger     = False
+        v7_market_msg = f"✅ 大盤外資 {int(fb)} 億 → 中性，單檔最多20%資金"
+
+    # ── 執行三系統評分
+    df_run = df.copy()
+    print("  [MAX] 執行 P5/V7/T1 引擎...")
+    p5_res            = run_p5(df_run)
+    v7_pass, v7_bk    = run_v7(df_run, min_gates=5, min_score=88)
+    t1_main, t1_fresh = run_t1(df_run)
+
+    p5_top3_sids = [r["sid"]  for r in p5_res[:3]]
+    v7_top3_sids = [r["代號"] for r in v7_pass[:3]]
+    t1_p5_top3, _ = run_t1(df_run, sid_filter=p5_top3_sids, force_show=True)
+    t1_v7_top3, _ = run_t1(df_run, sid_filter=v7_top3_sids, force_show=True)
+
+    p5_sids = {r["sid"]  for r in p5_res[:8]}
+    v7_sids = {r["代號"] for r in v7_pass[:8]}
+    t1_sids = {r["代號"] for r in t1_main[:6]}
+
+    print(f"  [MAX] P5:{len(p5_res)} | V7正式:{len(v7_pass)} 備案:{len(v7_bk)}"
+          f" | T1:{len(t1_main)} 剛穿:{len(t1_fresh)}")
+
+    # ── cross_tag（閉包存取 p5/v7/t1 sids）
+    def cross_tag(sid):
+        tags = []
+        if sid in p5_sids: tags.append("P")
+        if sid in v7_sids: tags.append("V")
+        if sid in t1_sids: tags.append("T")
+        if not tags: return ""
+        return (' <span class="bdg bg-o" style="font-size:9px;">★'
+                + "+".join(tags) + '</span>')
+
+    # ── Render 函式（巢狀定義，閉包存取宏觀旗標）
+    def render_mini_t1(t1_list, label=""):
+        if not t1_list:
+            return '<div style="font-size:10px;color:#999;padding:4px 8px;">（此3檔目前無T1買點資料）</div>'
+        cols=[("代號",44),("名稱",54),("T1",32),("收盤",40),("月線%",38),("RSI",30),
+              ("V7通過",62),("週線MA13",52),("進場區間",62),("止損",38),("目標一",38)]
+        thead="".join('<th style="width:' + str(w) + 'px;">' + h + '</th>'
+                      for h,w in cols)
+        rows=""
+        for i,r in enumerate(t1_list):
+            bg = "#f8f9fa" if i%2==0 else "#fff"
+            gc = grade_cls(r["T1"])
+            wc = ("c-r" if "剛穿" in str(r["週線MA13"])
+                  else ("c-o" if "週線" in str(r["週線MA13"]) else ""))
+            rows+=('<tr style="background:' + bg + ';">'
+                   + '<td><b>' + r["代號"] + '</b></td>'
+                   + '<td style="text-align:left;">' + r["名稱"] + '</td>'
+                   + '<td>' + bdg(r["T1"],gc) + '</td>'
+                   + '<td><b>' + str(r["收盤"]) + '</b></td>'
+                   + '<td>' + r["月線%"] + '</td>'
+                   + '<td>' + r["RSI"] + '</td>'
+                   + '<td style="font-size:9px;text-align:left;">' + r["V7通過"] + '</td>'
+                   + '<td class="' + wc + '">' + r["週線MA13"] + '</td>'
+                   + '<td>' + r["進場區間"] + '</td>'
+                   + '<td>' + r["止損"] + '</td>'
+                   + '<td>' + r["目標一"] + '</td>'
+                   + '</tr>')
+        return ('<div class="mini-tbl"><div class="mini-title">📍 '
+                + label + ' 前三名 × T1 買點確認</div>'
+                + '<div style="overflow-x:auto;">'
+                + '<table class="tbl"><thead><tr>' + thead + '</tr></thead>'
+                + '<tbody>' + rows + '</tbody></table></div></div>')
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+
+    def render_p5(res):
+        if not res: return '<p style="color:#888;">P5 無符合條件</p>'
+
+        cols=[("代號",46),("名稱",58),("收盤",44),("總分/130",48),("面向",32),
+              ("EPS年增率",46),("淨值報酬率",46),("本益比",36),("PEG",38),("負債比",38),
+              ("入場建議",68),("月線止損",48),("季線止損",48),("目標區間",62),("操作/T1",60)]
+        thead="".join('<th style="width:' + str(w) + 'px;">' + h + '</th>'
+                      for h,w in cols)
+
+        rows=""; sup_inserted=False
+        for i,r in enumerate(res):
+            bg     = "#f8f9fa" if i%2==0 else "#fff"
+            tot    = r["total"]; is_sup = r.get("_sup",False)
+            tc     = ("c-g" if tot>=110 else "c-b" if tot>=90 else "c-o" if tot>=70 else "c-r")
+            fp_n   = r["faces"]
+            fp_c   = ("bg-g" if fp_n>=5 else ("bg-b" if fp_n>=4 else "bg-o"))
+            wma_tag= (wline_bdg() if (r["wfp"] or r["wmsig"]) else "")
+            t1c    = grade_cls(r["t1g"]); op_s = r["op"]
+
+            if is_sup and not sup_inserted:
+                rows+=('<tr><td colspan="15" style="background:#fff3cd;font-size:10px;'
+                       + 'padding:4px 8px;text-align:left;">ℹ️ 以下為重點追蹤股（總分未達'
+                       + str(P5_PASS) + '分）</td></tr>')
+                sup_inserted=True
+
+            rows+=('<tr style="background:' + bg + (';opacity:.85;' if is_sup else '') + ';">'
+                   + '<td><b>' + r["sid"] + '</b></td>'
+                   + '<td style="text-align:left;">' + r["name"] + wma_tag + '</td>'
+                   + '<td><b>' + str(round(r["close"],0)) + '</b></td>'
+                   + '<td class="' + tc + '" style="font-weight:bold;font-size:12px;">' + str(tot) + '</td>'
+                   + '<td>' + bdg(str(fp_n)+"/6",fp_c) + '</td>'
+                   + '<td>' + r["ey1_s"] + '</td>'
+                   + '<td>' + r["roe_s"] + '</td>'
+                   + '<td>' + r["pe_s"]  + '</td>'
+                   + '<td>' + r["peg_s"] + '</td>'
+                   + '<td>' + r["dr_s"]  + '</td>'
+                   + '<td style="text-align:left;font-size:9px;">' + r["entry"] + '</td>'
+                   + '<td>' + r["sl1"]   + '</td>'
+                   + '<td>' + r["sl2"]   + '</td>'
+                   + '<td style="font-size:9px;">' + r["tgt"] + '</td>'
+                   + '<td>' + bdg(op_s,"bg-dk") + ' ' + bdg(r["t1g"],t1c) + '</td>'
+                   + '</tr>')
+
+        mc_c = ("" if macro_ok else 'style="color:#c0392b;font-weight:bold;"')
+        mc_s = '宏觀：' + ("✅通過" if macro_ok else "⚠️偏弱（僅供參考）")
+        sup_cnt = sum(1 for r in res if r.get("_sup"))
+
+        tbl=('<div style="overflow-x:auto;">'
+             + '<div style="font-size:10px;color:#666;margin-bottom:3px;">'
+             + '<span ' + mc_c + '>' + mc_s + '</span>'
+             + '　依總分排序　' + wline_bdg() + '=週線MA13多頭</div>'
+             + '<table class="tbl"><thead><tr>' + thead + '</tr></thead>'
+             + '<tbody>' + rows + '</tbody></table>'
+             + (('<div style="font-size:10px;color:#e67e22;margin-top:3px;">ℹ️ 共'
+                 + str(len(res)-sup_cnt) + '檔達P5合格標準，其餘'
+                 + str(sup_cnt) + '檔為重點追蹤股</div>') if sup_cnt else "")
+             + '</div>')
+
+        # ── 評分細項卡（版面改版）─────────────────────────────────
+        # 面向順序：名稱 → 分數（緊接）→ 詳細說明
+        face_cfg = [("基本面",30,"d1","s1"),("估值面",20,"d2","s2"),
+                    ("財務健康",20,"d3","s3"),("籌碼面",25,"d4","s4"),
+                    ("技術面",20,"d5","s5"),("風險面",15,"d6","s6")]
+        cards=""
+        for r in res[:8]:
+            tot = r["total"]
+            tc  = ("c-g" if tot>=110 else "c-b" if tot>=90 else "c-o")
+            wma_b = ((' ' + bdg("🔥2日剛穿","bg-r")) if r["wfp"]
+                     else ((' ' + wline_bdg()) if r["wmsig"] else ""))
+            # 入場欄加市價
+            entry_info = ('市價：<b>' + str(round(r["close"],0)) + '</b>'
+                          + ' ｜ 入場：' + r["entry"]
+                          + ' ｜ 止損：' + r["sl1"] + '（月）'
+                          + r["sl2"] + '（季）')
+            face_rows=""
+            for fname,fmax,dk,sk in face_cfg:
+                s   = r[sk]; det = r[dk]; sc = sc_cls(s,fmax)
+                det_s = "　".join(det) if det else "資料不足"
+                # 順序：面向名稱 | 分數 | 詳細說明
+                face_rows+=('<div class="face-row">'
+                           + '<span class="face-lbl">' + fname + '</span>'
+                           + '<span class="face-sc ' + sc + '">' + str(s) + '/' + str(fmax) + '</span>'
+                           + '<span class="face-det">' + det_s + '</span>'
+                           + '</div>')
+            cards+=('<div class="card">'
+                   + '<div style="font-size:12px;font-weight:bold;margin-bottom:4px;'
+                   + 'border-bottom:1px solid #eee;padding-bottom:4px;">'
+                   + r["sid"] + ' ' + r["name"]
+                   + ' <span class="' + tc + '" style="font-size:14px;">' + str(tot) + '/130</span>'
+                   + wma_b + '</div>'
+                   # 入場止損一行
+                   + '<div style="font-size:10px;color:#555;margin-bottom:5px;">'
+                   + entry_info + '</div>'
+                   + face_rows + '</div>')
+
+        mini = render_mini_t1(t1_p5_top3, "P5長線")
+        return tbl + '<div style="margin-top:8px;">' + cards + '</div>' + mini
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+
+    def render_v7(passed, backup):
+        out=""
+
+        if v7_danger:
+            out+=('<div class="danger-bar">🛑 ' + v7_market_msg
+                  + ' ｜ 以下選股結果僅供觀察，今日極度不建議實際進場做多！</div>')
+
+        cols=[("標記",50),("代號",44),("名稱",54),("收盤",42),
+              ("總分\n/100",36),("分級",44),
+              ("G1\n/12",24),("G2\n/30",24),("G3\n/25",24),
+              ("G4\n/15",24),("G5\n/10",24),("G6\n/16",24),
+              ("通過\n關",30),("催化",36),("動能\n分",30),
+              ("族群",30),("chip",44),("RSI",28),("週線\nMA13",46),
+              ("進場",56),("止損",38),("目標一",38),("目標二",38)]
+        thead="".join('<th style="width:' + str(w) + 'px;">' + h + '</th>'
+                      for h,w in cols)
+
+        if passed:
+            rows=""
+            for i,r in enumerate(passed):
+                bg   = "#f8f9fa" if i%2==0 else "#fff"
+                mk   = r.get("標記","")
+                mk_c = "bg-r" if ("最高" in mk or "極強" in mk) else "bg-b"
+                tot  = r["總分"]
+                tc   = ("c-g" if tot>=93 else "c-b" if tot>=86 else "c-o")
+                wc   = ("c-r" if "剛穿" in str(r["週線MA13"])
+                        else ("c-g" if "多頭" in str(r["週線MA13"]) else ""))
+                cs_v = str(r["chip_sync"])
+                cs_c = ("c-g" if cs_v=="雙買" else ("c-b" if "單買" in cs_v else ""))
+                cat_v= str(r["催化"])
+                cat_c= ("c-g" if cat_v=="強" else ("c-b" if cat_v=="中" else "c-o"))
+                rows+=('<tr style="background:' + bg + ';">'
+                       + '<td>' + bdg(mk,mk_c) + '</td>'
+                       + '<td><b>' + r["代號"] + '</b></td>'
+                       + '<td style="text-align:left;">' + r["名稱"] + '</td>'
+                       + '<td><b>' + str(r["收盤"]) + '</b></td>'
+                       + '<td class="' + tc + '" style="font-weight:bold;font-size:12px;">' + str(tot) + '</td>'
+                       + '<td>' + str(r["分級"]) + '</td>'
+                       + '<td>' + str(r["G1"]) + '</td>'
+                       + '<td>' + str(r["G2"]) + '</td>'
+                       + '<td>' + str(r["G3"]) + '</td>'
+                       + '<td>' + str(r["G4"]) + '</td>'
+                       + '<td>' + str(r["G5"]) + '</td>'
+                       + '<td>' + str(r["G6"]) + '</td>'
+                       + '<td>' + str(r["通過關"]) + '</td>'
+                       + '<td class="' + cat_c + '">' + cat_v + '</td>'
+                       + '<td>' + str(r["動能分"]) + '</td>'
+                       + '<td>' + str(r["族群"]) + '</td>'
+                       + '<td class="' + cs_c + '">' + cs_v + '</td>'
+                       + '<td>' + str(r["RSI"]) + '</td>'
+                       + '<td class="' + wc + '" style="font-weight:bold;">' + str(r["週線MA13"]) + '</td>'
+                       + '<td>' + str(r["進場"]) + '</td>'
+                       + '<td>' + str(r["止損"]) + '</td>'
+                       + '<td>' + str(r["目標一"]) + '</td>'
+                       + '<td>' + str(r["目標二"]) + '</td>'
+                       + '</tr>')
+            out+=('<div style="overflow-x:auto;">'
+                  + '<table class="tbl"><thead><tr>' + thead + '</tr></thead>'
+                  + '<tbody>' + rows + '</tbody></table></div>')
+
+            # 核心理由行
+            r_rows=""
+            for i,r in enumerate(passed):
+                bg = "#f8f9fa" if i%2==0 else "#fff"
+                r_rows+=('<tr style="background:' + bg + ';">'
+                         + '<td style="width:44px;font-weight:bold;">' + r["代號"] + '</td>'
+                         + '<td style="width:54px;">' + r["名稱"] + '</td>'
+                         + '<td style="text-align:left;font-size:10px;color:#333;white-space:normal;">' + r["核心理由"] + '</td>'
+                         + '<td style="width:200px;font-size:10px;color:#c0392b;white-space:normal;">' + r["失敗條件"] + '</td>'
+                         + '</tr>')
+            out+=('<div style="overflow-x:auto;margin-top:4px;">'
+                  + '<table class="tbl" style="table-layout:auto;">'
+                  + '<thead><tr><th style="width:44px;">代號</th><th style="width:54px;">名稱</th>'
+                  + '<th>核心理由</th><th style="width:200px;">失敗條件</th></tr></thead>'
+                  + '<tbody>' + r_rows + '</tbody></table></div>')
+        else:
+            out+=('<div style="background:#2c3e50;color:#ecf0f1;padding:10px;'
+                  + 'border-radius:8px;">⚡ V7 今日無達86分+4關個股</div>')
+
+        if backup:
+            bk_cols=[("代號",44),("名稱",54),("總分",34),("通過關",34),
+                     ("G2催化",36),("chip",44),("量比",36),("RSI",28),
+                     ("外資連買",44),("族群",30),("未通關",56)]
+            bt="".join('<th style="width:' + str(w) + 'px;">' + h + '</th>'
+                       for h,w in bk_cols)
+            br=""
+            for r in backup:
+                br+=('<tr style="background:#fff8f0;">'
+                     + ''.join('<td>' + str(r.get(col,"—")) + '</td>'
+                               for col in ["代號","名稱","總分","通過關","催化","chip_sync",
+                                           "量比","RSI","外資連買","族群","未通關"])
+                     + '</tr>')
+            out+=('<div class="bkban" style="margin-top:6px;">⚠️ V7備案（78~85分+T1 A+，需謹慎）</div>'
+                  + '<div style="overflow-x:auto;">'
+                  + '<table class="tbl"><thead><tr>' + bt + '</tr></thead>'
+                  + '<tbody>' + br + '</tbody></table></div>')
+            for r in backup:
+                out+=('<div style="font-size:10px;padding:3px 8px;'
+                      + 'border-left:3px solid #e67e22;margin:2px 0;background:#fff8f0;">'
+                      + '<b>' + r["代號"] + ' ' + r["名稱"] + '</b>｜' + r["核心理由"] + '</div>')
+        elif not passed:
+            out+=('<div style="background:#fff3cd;padding:8px;'
+                  + 'border-radius:6px;font-size:10px;margin-top:4px;">ℹ️ 今日無V7備案股票。</div>')
+
+        out += render_mini_t1(t1_v7_top3, "V7短線")
+        return out
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+
+    def render_t1(main_l, fresh_l):
+        out=""
+        cols=[("代號",44),("名稱",54),("T1",32),("收盤",42),
+              ("月線%",36),("RSI",28),("量比",34),("V7通過",68),
+              ("chip",42),("news",26),("外資連買",44),("週線MA13",52),
+              ("進場區間",58),("止損",38),("目標一",38),("目標二",38)]
+        thead="".join('<th style="width:' + str(w) + 'px;">' + h + '</th>'
+                      for h,w in cols)
+
+        def make_rows(lst):
+            h=""
+            for i,r in enumerate(lst):
+                bg = "#f8f9fa" if i%2==0 else "#fff"
+                gc = grade_cls(r["T1"])
+                wc = ("c-r" if "剛穿" in str(r["週線MA13"])
+                      else ("c-o" if "週線" in str(r["週線MA13"]) else ""))
+                cs_v = str(r["chip"]); cs_c = ("c-g" if cs_v=="雙買" else ("c-b" if "單買" in cs_v else ""))
+                h+=('<tr style="background:' + bg + ';">'
+                    + '<td><b>' + r["代號"] + '</b></td>'
+                    + '<td style="text-align:left;">' + r["名稱"] + '</td>'
+                    + '<td>' + bdg(r["T1"],gc) + '</td>'
+                    + '<td><b>' + str(r["收盤"]) + '</b></td>'
+                    + '<td>' + r["月線%"] + '</td>'
+                    + '<td>' + r["RSI"] + '</td>'
+                    + '<td>' + r["量比"] + '</td>'
+                    + '<td style="text-align:left;font-size:9px;">' + r["V7通過"] + '</td>'
+                    + '<td class="' + cs_c + '">' + cs_v + '</td>'
+                    + '<td>' + str(r["news"]) + '</td>'
+                    + '<td>' + r["外資連買"] + '</td>'
+                    + '<td class="' + wc + '" style="font-weight:bold;">' + r["週線MA13"] + '</td>'
+                    + '<td>' + r["進場區間"] + '</td>'
+                    + '<td>' + r["止損"] + '</td>'
+                    + '<td>' + r["目標一"] + '</td>'
+                    + '<td>' + r["目標二"] + '</td>'
+                    + '</tr>')
+            return h
+
+        if main_l:
+            out+=('<div style="overflow-x:auto;">'
+                  + '<table class="tbl"><thead><tr>' + thead + '</tr></thead>'
+                  + '<tbody>' + make_rows(main_l) + '</tbody></table></div>')
+            cards=""
+            for r in main_l:
+                gc = grade_cls(r["T1"])
+                wt = (" " + bdg("🔥剛穿","bg-r") if "剛穿" in str(r["週線MA13"])
+                      else (" " + bdg("⭐週線","bg-o") if "週線" in str(r["週線MA13"]) else ""))
+                lc = {"A+":"27ae60","A":"2980b9","A-":"16a085","B+":"e67e22"}.get(r["T1"],"aaa")
+                cards+=('<div class="t1card" style="border-left-color:#' + lc + ';">'
+                        + '<div class="hd">' + r["代號"] + ' ' + r["名稱"] + ' '
+                        + bdg(r["T1"],gc) + wt + '</div>'
+                        + '<div class="bd">' + r["結論"] + '</div></div>')
+            out+='<div style="margin-top:5px;">' + cards + '</div>'
+        else:
+            out+='<div style="padding:12px;background:#eee;border-radius:8px;font-size:11px;">T1 今日無A+~B+買點</div>'
+
+        if fresh_l:
+            def make_fresh_rows(lst):
+                h=""
+                for i,r in enumerate(lst):
+                    bg = "#f8f9fa" if i%2==0 else "#fff"
+                    gc = grade_cls(r["T1"]); sid=r["代號"]; ctag=cross_tag(sid)
+                    h+=('<tr style="background:' + bg + ';">'
+                        + '<td><b>' + sid + '</b></td>'
+                        + '<td style="text-align:left;">' + r["名稱"] + ctag + '</td>'
+                        + '<td>' + bdg(r["T1"],gc) + '</td>'
+                        + '<td><b>' + str(r["收盤"]) + '</b></td>'
+                        + '<td>' + r["月線%"] + '</td>'
+                        + '<td>' + r["RSI"] + '</td>'
+                        + '<td>' + r["量比"] + '</td>'
+                        + '<td style="text-align:left;font-size:9px;">' + r["V7通過"] + '</td>'
+                        + '<td>' + str(r["chip"]) + '</td>'
+                        + '<td>' + str(r["news"]) + '</td>'
+                        + '<td>' + r["外資連買"] + '</td>'
+                        + '<td class="c-r" style="font-weight:bold;">' + r["週線MA13"] + '</td>'
+                        + '<td>' + r["進場區間"] + '</td>'
+                        + '<td>' + r["止損"] + '</td>'
+                        + '<td>' + r["目標一"] + '</td>'
+                        + '<td>' + r["目標二"] + '</td>'
+                        + '</tr>')
+                return h
+
+            out+=('<div class="ma13ban">'
+                  + '<b>🔥 週線MA13特別推薦（2日內剛穿 · 最高勝率）</b>'
+                  + '<small>條件：週線MA13向上+股價剛站上+日線MA5/MA10剛穿MA20（2日內）共'
+                  + str(len(fresh_l)) + '檔</small>'
+                  + '<small>止損跌破MA20即出｜保守持10~25天｜積極30~50天</small>'
+                  + '<small>★P=P5名單 ★V=V7名單 ★T=T1主名單（三系統共振則特別關注）</small>'
+                  + '</div>')
+            out+=('<div style="overflow-x:auto;">'
+                  + '<table class="tbl"><thead><tr>' + thead + '</tr></thead>'
+                  + '<tbody>' + make_fresh_rows(fresh_l) + '</tbody></table></div>')
+
+            fr_cards=""
+            for r in fresh_l:
+                gc=grade_cls(r["T1"]); sid=r["代號"]; ctag=cross_tag(sid)
+                fr_cards+=('<div class="t1card" style="border-left-color:#c0392b;">'
+                           + '<div class="hd">' + sid + ' ' + r["名稱"] + ctag + ' '
+                           + bdg(r["T1"],gc) + ' ' + bdg("🔥2日剛穿","bg-r") + '</div>'
+                           + '<div class="bd">' + r["結論"] + '</div></div>')
+            out+='<div style="margin-top:4px;">' + fr_cards + '</div>'
+        else:
+            out+=('<div style="background:#f0f0f0;padding:6px 10px;border-radius:6px;'
+                  + 'margin-top:6px;font-size:10px;color:#777;">'
+                  + 'ℹ️ 週線MA13剛穿（2日內）：今日無符合條件。</div>')
+        return out
+
+
+    # ══════════════════════════════════════════════════════════════════
+
+
+    # ── 組裝 MAX HTML
+    mc_c = "" if macro_ok else "color:#e74c3c;"
+    p5_html_inner = render_p5(p5_res)
+    v7_html_inner = render_v7(v7_pass, v7_bk)
+    t1_html_inner = render_t1(t1_main, t1_fresh)
+
+    summary_cards = "".join(
+        f'<div class="scard" style="background:{c};">'  
+        f'<div class="n">{n}</div><div class="lb">{lb}</div></div>'
+        for c, n, lb in [
+            ("#c0392b", len(p5_res),   "P5長線"),
+            ("#2980b9", len(v7_pass),  "V7正式"),
+            ("#e67e22", len(v7_bk),    "V7備案"),
+            ("#27ae60", len(t1_main),  "T1買點"),
+            ("#922b21", len(t1_fresh), "🔥週線剛穿"),
+        ]
+    )
+
+    full = (
+        CSS_MAX
+        + '<div id="max-wrap"><div class="rep">'
+        + '<div class="hdr">'
+        + '<h1>🏆 台股三系統選股報告（MAX）</h1>'
+        + '<div class="sub">P5長線 · V7 v7.5 強勢選股 · T1 v8.2 買點系統</div>'
+        + f'<div class="mcr" style="{mc_c}">■ 宏觀：{macro_msg}</div>'
+        + f'<div class="mcr" style="{"color:#c0392b;font-weight:bold;" if v7_danger else "color:#f39c12;"}">'
+        + f'■ V7大盤：{v7_market_msg}</div>'
+        + '</div>'
+        + f'<div class="sumrow">{summary_cards}</div>'
+        + '<div class="sec">📊 P5 長線合格清單</div>'
+        + p5_html_inner
+        + '<div class="sec" style="color:#16213e;border-left-color:#16213e;margin-top:14px;">⚡ V7 v7.5 強勢選股（最多6檔）</div>'
+        + v7_html_inner
+        + '<div class="sec" style="color:#1b4332;border-left-color:#1b4332;margin-top:14px;">🎯 T1 v8.2 買點系統（超嚴格版）</div>'
+        + t1_html_inner
+        + '<div style="text-align:center;color:#aaa;font-size:9px;margin-top:12px;'
+        + 'padding-top:6px;border-top:1px solid #ddd;">'
+        + '台股三系統 v7 MAX ｜ 僅供參考，不構成投資建議</div>'
+        + '</div></div>'
+    )
+    return full
+
+
+
 # ── PART 2：HTML 報告
 # ============================================================
 
@@ -2070,7 +3286,7 @@ CSS = """<style>
 def generate_html(t1_top_final, L1_TOP20, L1_full_pool, S1_TOP12, S1_full_pool,
                   t1a_results, t1b_results, z1_results, risk_rules,
                   N_STOCKS, macro, z1_kline_cache, data_today,
-                  downtrend_hits=None):
+                  downtrend_hits=None, df_for_max=None):
 
     def bdg(txt, cls='bg-gray'):
         return f'<span class="bdg {cls}">{txt}</span>'
@@ -2376,6 +3592,19 @@ def generate_html(t1_top_final, L1_TOP20, L1_full_pool, S1_TOP12, S1_full_pool,
                 f'<title>台股發發發 v2.0 {data_today}</title></head>'
                 f'<body style="margin:0;padding:0">{full_html}</body></html>')
     print(f'✅ HTML 報告已儲存：{html_fname}（{len(full_html)//1024} KB）')
+    # ── PART 3：接上 MAX 三系統
+    if df_for_max is not None:
+        try:
+            max_section = generate_max_html(df_for_max, macro)
+            # Append MAX section inside <body> before </body></html>
+            with open(html_fname, 'r', encoding='utf-8') as _fh:
+                _content = _fh.read()
+            _content = _content.replace('</body></html>', max_section + '</body></html>')
+            with open(html_fname, 'w', encoding='utf-8') as _fh:
+                _fh.write(_content)
+            print(f'✅ MAX 三系統已接上 HTML')
+        except Exception as _e:
+            print(f'⚠️ MAX 三系統生成失敗（不影響 888 報告）：{_e}')
     return html_fname
 
 
@@ -2552,7 +3781,8 @@ def main():
         t1_top_final, L1_TOP20, L1_full_pool, S1_TOP12, S1_full_pool,
         t1a_results, t1b_results, z1_results, risk_rules,
         N_STOCKS, macro, z1_kline_cache, data_today,
-        downtrend_hits=downtrend_hits)
+        downtrend_hits=downtrend_hits,
+        df_for_max=df2)
 
     # 複製為 index.html（GitHub Pages 固定網址）
     import shutil
